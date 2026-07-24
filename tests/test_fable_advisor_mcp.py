@@ -117,6 +117,26 @@ class FableAdvisorMcpTests(unittest.TestCase):
             ),
         )
 
+    def test_team_subscription_is_accepted_as_first_party(self) -> None:
+        team_auth = self.completed(
+            ["claude", "auth", "status"],
+            json.dumps(
+                {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "apiProvider": "firstParty",
+                    "subscriptionType": "team",
+                }
+            ),
+        )
+        with mock.patch.object(FABLE.subprocess, "run", return_value=team_auth):
+            auth = FABLE.check_claude_auth(Path("/usr/local/bin/claude"))
+
+        self.assertEqual(
+            auth,
+            {"auth_method": "claude.ai", "api_provider": "firstParty"},
+        )
+
     def model_result(
         self, response: str, *, model_usage: dict[str, object] | None = None
     ) -> subprocess.CompletedProcess[str]:

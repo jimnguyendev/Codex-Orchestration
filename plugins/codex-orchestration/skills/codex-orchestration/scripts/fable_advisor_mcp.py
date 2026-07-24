@@ -147,10 +147,10 @@ def check_claude_auth(claude: Path | None = None) -> dict[str, str]:
         payload.get("loggedIn") is True
         and payload.get("authMethod") == "claude.ai"
         and payload.get("apiProvider") == "firstParty"
-        and subscription in {"pro", "max"}
+        and subscription in {"pro", "max", "team"}
     ):
         raise AdvisorError(
-            "Claude Code must be logged in through a first-party Pro or Max account; "
+            "Claude Code must be logged in through a first-party Pro, Max, or Team account; "
             "run `claude auth login` and try again."
         )
     return {"auth_method": "claude.ai", "api_provider": "firstParty"}
