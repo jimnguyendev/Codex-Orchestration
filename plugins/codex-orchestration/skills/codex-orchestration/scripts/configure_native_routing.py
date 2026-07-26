@@ -10,6 +10,8 @@ readback verification.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,12 +26,18 @@ import threading
 import time
 from typing import Any
 
+try:  # The installer is supported on Unix desktop hosts.
+    import fcntl
+except ImportError:  # pragma: no cover - defensive package import on non-Unix hosts
+    fcntl = None  # type: ignore[assignment]
+
 from routing_state import (
     FABLE_EFFORTS,
     FABLE_MODEL,
     MANAGED_MARKER,
     ROUTING_TOOL_NAMESPACE,
     RoutingStateError,
+    routing_state_binding,
     validate_routing_state,
 )
 
@@ -647,10 +655,17 @@ def validate_planning_routes(
 
 
 def _read_state(path: Path) -> dict[str, Any] | None:
+    state, _ = _read_state_with_revision(path)
+    return state
+
+
+def _read_state_with_revision(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """Read one secure state-file snapshot and its byte-exact revision digest."""
+
     try:
         info = path.lstat()
     except FileNotFoundError:
-        return None
+        return None, None
     except OSError as exc:
         raise ConfigurationError(f"Could not inspect routing state {path}: {exc}") from exc
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
@@ -658,11 +673,12 @@ def _read_state(path: Path) -> dict[str, Any] | None:
     if info.st_nlink != 1:
         raise ConfigurationError(f"Routing state has multiple hard links: {path}")
     try:
-        state = json.loads(path.read_text(encoding="utf-8"))
+        payload = path.read_bytes()
+        state = json.loads(payload.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ConfigurationError(f"Could not read routing state {path}: {exc}") from exc
     try:
-        return validate_routing_state(state)
+        return validate_routing_state(state), hashlib.sha256(payload).hexdigest()
     except RoutingStateError as exc:
         raise ConfigurationError("Saved routing state is invalid.") from exc
 
@@ -714,6 +730,44 @@ def _write_state(path: Path, state: dict[str, Any]) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+@contextmanager
+def _state_lock(path: Path):
+    """Serialize state CAS operations between installer processes."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / f".{path.name}.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        if fcntl is None:
+            raise ConfigurationError("Routing-state compare-and-swap requires Unix locks.")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        if fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _write_state_cas(
+    path: Path,
+    state: dict[str, Any],
+    expected_revision: str | None,
+) -> str:
+    """Persist state only if the original byte snapshot is still current."""
+
+    with _state_lock(path):
+        _, current_revision = _read_state_with_revision(path)
+        if current_revision != expected_revision:
+            raise ConfigurationError(
+                "Saved routing state changed concurrently; its valid replacement was preserved."
+            )
+        _write_state(path, state)
+        _, written_revision = _read_state_with_revision(path)
+        if written_revision is None:  # pragma: no cover - impossible after successful replace
+            raise ConfigurationError("Routing state disappeared during compare-and-swap.")
+        return written_revision
+
+
 def _remove_state(path: Path) -> None:
     if not path.exists():
         return
@@ -727,6 +781,19 @@ def _remove_state(path: Path) -> None:
         os.fsync(directory_fd)
     finally:
         os.close(directory_fd)
+
+
+def _remove_state_cas(path: Path, expected_revision: str | None) -> None:
+    """Remove only the exact state snapshot observed before the config write."""
+
+    with _state_lock(path):
+        _, current_revision = _read_state_with_revision(path)
+        if current_revision != expected_revision:
+            raise ConfigurationError(
+                "Saved routing state changed concurrently; its valid replacement was preserved."
+            )
+        if current_revision is not None:
+            _remove_state(path)
 
 
 def _agent_files_with_name(directory: Path, name: str) -> list[Path]:
@@ -1011,6 +1078,15 @@ def build_policy(
     designer: dict[str, Any] | None = None,
     executor_fallback: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
+    route_binding = routing_state_binding(
+        {
+            "executor": executor,
+            "executor_fallback": executor_fallback,
+            "planner": planner,
+            "advisor": advisor,
+            "designer": designer,
+        }
+    )
     has_direct_route = executor["kind"] == "model" or (
         planner is not None and planner["kind"] == "model"
     ) or (
@@ -1083,6 +1159,8 @@ On that one eligible result only, consume eligibility before retrying exactly on
     mode = f"""{MANAGED_MARKER}
 This adds model routing to Codex's existing multi-agent flow; it is not a second scheduler.
 
+{route_binding}
+
 If you are the root task model, you are the orchestrator. Own intent, planning, architecture, decomposition, delegation, integration, review, final verification, and the user-facing answer. Codex still decides whether a plan or subagent helps, how many independent slices exist, and what can run safely in parallel. Keep simple, tightly coupled, context-heavy, or root-owned work with the root. Do not delegate merely to prove the policy is active.
 
 {planner_mode}
@@ -1148,6 +1226,8 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
         designer_hint = "No Designer route is configured."
     usage = f"""{MANAGED_MARKER}
 If you are the root task model, you are the orchestrator. Apply these routes only to children you decide to create.
+
+{route_binding}
 
 For delegated executor work, call this tool with {_spawn_route(executor)}, fork_turns = "none". Send a self-contained task packet.
 
@@ -1907,6 +1987,7 @@ def _disable(
     config: dict[str, Any],
     version: str | None,
     state: dict[str, Any] | None,
+    state_revision: str | None,
     apply: bool,
 ) -> int:
     current = _current_values(config)
@@ -1918,6 +1999,7 @@ def _disable(
             print("Native routing is already inactive.")
             return 0
         edits = []
+        rollback: list[dict[str, Any]] = []
         if managed_mode:
             edits.append(
                 {
@@ -1926,11 +2008,25 @@ def _disable(
                     "mergeStrategy": "replace",
                 }
             )
+            rollback.append(
+                {
+                    "keyPath": "features.multi_agent_v2.multi_agent_mode_hint_text",
+                    "value": current["mode"],
+                    "mergeStrategy": "replace",
+                }
+            )
         if managed_usage:
             edits.append(
                 {
                     "keyPath": "features.multi_agent_v2.usage_hint_text",
                     "value": None,
+                    "mergeStrategy": "replace",
+                }
+            )
+            rollback.append(
+                {
+                    "keyPath": "features.multi_agent_v2.usage_hint_text",
+                    "value": current["usage"],
                     "mergeStrategy": "replace",
                 }
             )
@@ -1963,6 +2059,13 @@ def _disable(
                     "mergeStrategy": "replace",
                 }
             ]
+            rollback = [
+                {
+                    "keyPath": "features.multi_agent_v2",
+                    "value": current["feature"],
+                    "mergeStrategy": "replace",
+                }
+            ]
         else:
             edits = [
                 edit
@@ -1986,12 +2089,42 @@ def _disable(
                 )
                 if edit is not None
             ]
+            rollback = [
+                edit
+                for edit in (
+                    snapshot_edit(
+                        "features.multi_agent_v2.hide_spawn_agent_metadata",
+                        snapshot(current["metadata"]),
+                    ),
+                    snapshot_edit(
+                        "features.multi_agent_v2.tool_namespace",
+                        snapshot(current["namespace"]),
+                    ),
+                    snapshot_edit(
+                        "features.multi_agent_v2.multi_agent_mode_hint_text",
+                        snapshot(current["mode"]),
+                    ),
+                    snapshot_edit(
+                        "features.multi_agent_v2.usage_hint_text",
+                        snapshot(current["usage"]),
+                    ),
+                )
+                if edit is not None
+            ]
         previous_mcp = previous.get("mcp")
         if isinstance(previous_mcp, dict):
             edits.extend(
                 edit
                 for edit in (
                     snapshot_edit(fable_key_path(server), previous_mcp[server])
+                    for server in previous_mcp
+                )
+                if edit is not None
+            )
+            rollback.extend(
+                edit
+                for edit in (
+                    snapshot_edit(fable_key_path(server), snapshot(current["mcp"][server]))
                     for server in previous_mcp
                 )
                 if edit is not None
@@ -2003,7 +2136,29 @@ def _disable(
     result = _batch_write(app, edits, version, reload_user_config=True)
     if result.get("status") not in {"ok", "okOverridden"}:
         raise ConfigurationError(f"Unexpected config write status: {result.get('status')!r}")
-    _remove_state(state_path)
+    try:
+        _remove_state_cas(state_path, state_revision)
+    except ConfigurationError as state_exc:
+        try:
+            rollback_result = _batch_write(
+                app,
+                rollback,
+                result.get("version"),
+                reload_user_config=True,
+            )
+            if rollback_result.get("status") not in {"ok", "okOverridden"}:
+                raise ConfigurationError(
+                    f"unexpected rollback status {rollback_result.get('status')!r}"
+                )
+        except ConfigurationError as rollback_exc:
+            raise ConfigurationError(
+                "Saved routing state changed concurrently and was preserved, but "
+                f"the disable config rollback failed: {rollback_exc}"
+            ) from rollback_exc
+        raise ConfigurationError(
+            "Saved routing state changed concurrently and was preserved; the disable "
+            "config change was rolled back."
+        ) from state_exc
     print("Native routing disabled. Start a new Codex task to clear the loaded policy.")
     return 0
 
@@ -2040,10 +2195,17 @@ def main() -> int:
                     "Could not obtain the user config version needed for a safe write."
                 )
             state_path = app.codex_home / STATE_FILENAME
-            state = _read_state(state_path)
+            state, state_revision = _read_state_with_revision(state_path)
             _validate_state_config(state, app.config_path)
             if args.disable:
-                return _disable(app, config, version, state, args.apply)
+                return _disable(
+                    app,
+                    config,
+                    version,
+                    state,
+                    state_revision,
+                    args.apply,
+                )
             if args.repair:
                 return _repair(
                     app,
@@ -2122,6 +2284,14 @@ def main() -> int:
                 if executor["model"] == executor_fallback["model"]:
                     raise ConfigurationError(
                         "Executor fallback must differ from the primary executor model."
+                    )
+                if executor_fallback is saved_executor_fallback:
+                    resolve_model_effort(
+                        "Saved executor fallback",
+                        executor_fallback["model"],
+                        executor_fallback["effort"],
+                        catalog,
+                        False,
                     )
 
             planner: dict[str, Any] | None = None
@@ -2298,7 +2468,11 @@ def main() -> int:
                     f"Unexpected config write status: {result.get('status')!r}"
                 )
             try:
-                _write_state(state_path, new_state)
+                new_state_revision = _write_state_cas(
+                    state_path,
+                    new_state,
+                    state_revision,
+                )
             except (ConfigurationError, OSError) as state_exc:
                 try:
                     rollback_result = _batch_write(
@@ -2355,9 +2529,9 @@ def main() -> int:
                             f"{rollback_result.get('status')!r}"
                         )
                     if state is None:
-                        _remove_state(state_path)
+                        _remove_state_cas(state_path, new_state_revision)
                     else:
-                        _write_state(state_path, state)
+                        _write_state_cas(state_path, state, new_state_revision)
                 except (ConfigurationError, OSError) as rollback_exc:
                     raise ConfigurationError(
                         "Codex accepted the write but current-workspace effective "

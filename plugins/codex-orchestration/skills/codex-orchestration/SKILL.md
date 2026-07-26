@@ -346,27 +346,36 @@ Typical dry run and apply:
 python3 <skill-dir>/scripts/configure_native_routing.py \
   --codex-bin <active-codex-binary> \
   --executor-model gpt-5.6-luna \
-  --executor-effort xhigh \
-  --executor-fallback-model gpt-5.6-terra \
-  --executor-fallback-effort high
+  --executor-effort xhigh
 
 python3 <skill-dir>/scripts/configure_native_routing.py \
   --codex-bin <active-codex-binary> \
   --executor-model gpt-5.6-luna \
   --executor-effort xhigh \
-  --executor-fallback-model gpt-5.6-terra \
-  --executor-fallback-effort high \
   --apply
 ```
 
 ### Saved Executor fallback (v1)
 
-This optional fallback belongs only to a saved direct Executor policy. Set it with
+This optional fallback belongs only to a saved direct Executor policy. Supply its
+flags only when the user explicitly requests a saved fallback; a normal Executor
+setup must leave `executor_fallback` null. Set it with
 `--executor-fallback-model <different-direct-model>` and, when needed,
 `--executor-fallback-effort <effort>`. It requires `--executor-model`; custom
 executor agents cannot use it. A later setup that specifies neither fallback flag
 preserves the saved fallback. Use `--clear-executor-fallback` during setup to remove
 it explicitly. Never combine clear with a fallback model or effort.
+
+Explicitly authorized Luna-to-Terra fallback example:
+
+```bash
+python3 <skill-dir>/scripts/configure_native_routing.py \
+  --codex-bin <active-codex-binary> \
+  --executor-model gpt-5.6-luna \
+  --executor-effort xhigh \
+  --executor-fallback-model gpt-5.6-terra \
+  --executor-fallback-effort high
+```
 
 The saved policy lets primary Luna retry Terra exactly once only when the direct,
 immediately preceding `agents.spawn_agent` result has no child or agent provenance

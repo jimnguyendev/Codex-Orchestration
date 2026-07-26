@@ -179,6 +179,16 @@ Executor — GPT-5.6 Sol high: Activated
 
     def test_saved_executor_fallback_contract_is_narrow_and_explicit(self) -> None:
         self.assertIn("## Saved Executor fallback (v1)", SKILL)
+        typical_setup = SKILL.split("Typical dry run and apply:", 1)[1].split(
+            "### Saved Executor fallback (v1)", 1
+        )[0]
+        self.assertNotIn("--executor-fallback-model", typical_setup)
+        self.assertNotIn("--executor-fallback-effort", typical_setup)
+        self.assertIn(
+            "flags only when the user explicitly requests a saved fallback", SKILL
+        )
+        self.assertIn("normal Executor\nsetup must leave `executor_fallback` null", SKILL)
+        self.assertIn("Explicitly authorized Luna-to-Terra fallback example", SKILL)
         self.assertIn("--executor-fallback-model", SKILL)
         self.assertIn("--executor-fallback-effort", SKILL)
         self.assertIn("--clear-executor-fallback", SKILL)

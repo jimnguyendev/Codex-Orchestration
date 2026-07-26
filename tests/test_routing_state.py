@@ -86,6 +86,10 @@ def genuine_state(schema: int) -> dict[str, object]:
             "fable-advisor-python3": snapshot(),
             "fable-advisor-python": snapshot(False, present=True),
         }
+    if schema >= 5:
+        binding = STATE.routing_state_binding(state)
+        managed["mode"] += f"\n{binding}"
+        managed["usage"] += f"\n{binding}"
     return state
 
 
@@ -229,7 +233,28 @@ class RoutingStateTests(unittest.TestCase):
     def test_schema_five_accepts_an_explicit_null_fallback(self) -> None:
         state = genuine_state(5)
         state["executor_fallback"] = None
+        binding = STATE.routing_state_binding(state)
+        state["managed"]["mode"] = f"{STATE.MANAGED_MARKER}\nmode body\n{binding}"
+        state["managed"]["usage"] = f"{STATE.MANAGED_MARKER}\nusage body\n{binding}"
         self.assertIs(STATE.validate_routing_state(state), state)
+
+    def test_schema_five_route_only_tampering_fails_the_shared_validator(self) -> None:
+        route_keys = ("executor", "executor_fallback", "planner", "advisor", "designer")
+        for key in route_keys:
+            with self.subTest(route=key):
+                state = genuine_state(5)
+                if key == "executor_fallback":
+                    state[key]["effort"] = "xhigh"
+                elif key == "advisor":
+                    state[key] = {"kind": "agent", "agent": "other_advisor"}
+                elif key == "planner":
+                    state[key] = {"kind": "model", "model": "other-planner", "effort": "high"}
+                elif key == "designer":
+                    state[key]["effort"] = "xhigh"
+                else:
+                    state[key]["effort"] = "high"
+                with self.assertRaises(STATE.RoutingStateError):
+                    STATE.validate_routing_state(state)
 
 
 if __name__ == "__main__":

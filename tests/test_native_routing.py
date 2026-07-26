@@ -63,6 +63,7 @@ mutate_after_write = home / ".fake-mutate-after-write"
 mutate_namespace_after_write = home / ".fake-mutate-namespace-after-write"
 mutate_feature_after_write = home / ".fake-mutate-feature-after-write"
 mutate_state_after_write = home / ".fake-mutate-state-after-write"
+concurrent_state_payload = home / ".fake-concurrent-routing-state.json"
 ok_overridden = home / ".fake-ok-overridden"
 overridden_returned = home / ".fake-overridden-returned"
 fail_overridden_rollback = home / ".fake-fail-overridden-rollback"
@@ -136,6 +137,17 @@ models = [
         "defaultReasoningEffort": "high",
     },
 ]
+
+if (home / ".fake-remove-terra-model").exists():
+    models = [item for item in models if item["model"] != "gpt-5.6-terra"]
+if (home / ".fake-remove-terra-high-effort").exists():
+    for item in models:
+        if item["model"] == "gpt-5.6-terra":
+            item["supportedReasoningEfforts"] = [
+                option
+                for option in item["supportedReasoningEfforts"]
+                if option["reasoningEffort"] != "high"
+            ]
 
 for line in sys.stdin:
     message = json.loads(line)
@@ -234,6 +246,11 @@ for line in sys.stdin:
             }
             state_path.write_text(json.dumps(state), encoding="utf-8")
             mutate_state_after_write.unlink()
+        if concurrent_state_payload.exists():
+            (home / ".codex-orchestration-routing.json").write_bytes(
+                concurrent_state_payload.read_bytes()
+            )
+            concurrent_state_payload.unlink()
         new_version = version() + 1
         version_file.write_text(str(new_version), encoding="utf-8")
         status = "ok"
@@ -568,6 +585,40 @@ class NativeRoutingTests(unittest.TestCase):
             json.loads(state_path.read_text(encoding="utf-8"))["executor_fallback"]
         )
 
+    def test_preserved_fallback_must_remain_listed_with_its_saved_effort(self) -> None:
+        self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-fallback-model",
+            "gpt-5.6-terra",
+            "--executor-fallback-effort",
+            "high",
+            "--apply",
+        )
+        state_path = self.home / NATIVE.STATE_FILENAME
+        state_before = state_path.read_bytes()
+        config_before = self.read_fake_config()
+
+        for marker, expected in (
+            (".fake-remove-terra-model", "Saved executor fallback model"),
+            (".fake-remove-terra-high-effort", "Saved executor fallback effort"),
+        ):
+            with self.subTest(marker=marker):
+                (self.home / marker).touch()
+                rejected = self.run_script(
+                    "--executor-model",
+                    "gpt-5.6-sol",
+                    "--executor-effort",
+                    "high",
+                    "--apply",
+                    check=False,
+                )
+                self.assertEqual(rejected.returncode, 2)
+                self.assertIn(expected, rejected.stderr)
+                self.assertEqual(state_path.read_bytes(), state_before)
+                self.assertEqual(self.read_fake_config(), config_before)
+                (self.home / marker).unlink()
+
     def test_planner_argument_validation(self) -> None:
         exclusive = self.run_script(
             "--executor-model",
@@ -811,6 +862,39 @@ class NativeRoutingTests(unittest.TestCase):
                 self.assertEqual(status.returncode, 2)
                 self.assertIn("Saved routing state is invalid", status.stderr)
                 self.assertNotIn("policy_version", status.stderr)
+
+    def test_schema_five_route_only_tamper_blocks_every_state_consumer(self) -> None:
+        self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-fallback-model",
+            "gpt-5.6-terra",
+            "--apply",
+        )
+        state_path = self.home / NATIVE.STATE_FILENAME
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["executor_fallback"]["effort"] = "xhigh"
+        tampered = json.dumps(state).encode()
+        config_before = self.read_fake_config()
+
+        actions = (
+            ("status", ("--status",)),
+            ("setup", ("--executor-model", "gpt-5.6-sol", "--apply")),
+            ("repair", ("--repair", "--apply")),
+            ("disable", ("--disable", "--apply")),
+            (
+                "Fable setup",
+                ("--executor-model", "gpt-5.6-sol", "--advisor-fable", "--apply"),
+            ),
+        )
+        for label, arguments in actions:
+            with self.subTest(action=label):
+                state_path.write_bytes(tampered)
+                rejected = self.run_script(*arguments, check=False)
+                self.assertEqual(rejected.returncode, 2)
+                self.assertIn("Saved routing state is invalid", rejected.stderr)
+                self.assertEqual(state_path.read_bytes(), tampered)
+                self.assertEqual(self.read_fake_config(), config_before)
 
     def test_legacy_state_schemas_reject_planner_key_even_when_null(self) -> None:
         self.run_script("--executor-model", "gpt-5.6-luna", "--apply")
@@ -1592,7 +1676,8 @@ class NativeRoutingTests(unittest.TestCase):
         state_path = self.home / NATIVE.STATE_FILENAME
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["managed"]["usage"] = (
-            f"{NATIVE.MANAGED_MARKER}\nDIFFERENT MANAGED VALUE"
+            f"{NATIVE.MANAGED_MARKER}\nDIFFERENT MANAGED VALUE\n"
+            f"{NATIVE.routing_state_binding(state)}"
         )
         state_path.write_text(json.dumps(state), encoding="utf-8")
         status = self.run_script("--status")
@@ -1631,6 +1716,45 @@ class NativeRoutingTests(unittest.TestCase):
         feature = self.read_fake_config()["features"]["multi_agent_v2"]
         self.assertEqual(feature["tool_namespace"], "collaboration")
         self.assertTrue((self.home / NATIVE.STATE_FILENAME).exists())
+
+    def test_setup_cas_preserves_a_concurrent_valid_state_replacement(self) -> None:
+        self.run_script("--executor-model", "gpt-5.6-luna", "--apply")
+        state_path = self.home / NATIVE.STATE_FILENAME
+        replacement = state_path.read_bytes()
+        self.run_script("--disable", "--apply")
+        baseline_config = self.read_fake_config()
+        payload = self.home / ".fake-concurrent-routing-state.json"
+        payload.write_bytes(replacement)
+
+        rejected = self.run_script(
+            "--executor-model",
+            "gpt-5.6-sol",
+            "--executor-effort",
+            "high",
+            "--apply",
+            check=False,
+        )
+
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("state changed concurrently", rejected.stderr)
+        self.assertEqual(state_path.read_bytes(), replacement)
+        self.assertEqual(self.read_fake_config(), baseline_config)
+
+    def test_disable_cas_preserves_a_concurrent_valid_state_replacement(self) -> None:
+        self.run_script("--executor-model", "gpt-5.6-luna", "--apply")
+        state_path = self.home / NATIVE.STATE_FILENAME
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        replacement = (json.dumps(state, indent=4, sort_keys=True) + "\n").encode()
+        payload = self.home / ".fake-concurrent-routing-state.json"
+        payload.write_bytes(replacement)
+        managed_config = self.read_fake_config()
+
+        rejected = self.run_script("--disable", "--apply", check=False)
+
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("state changed concurrently", rejected.stderr)
+        self.assertEqual(state_path.read_bytes(), replacement)
+        self.assertEqual(self.read_fake_config(), managed_config)
 
     def test_state_write_works_when_fchmod_is_unavailable(self) -> None:
         state_path = self.home / "portable-state.json"
