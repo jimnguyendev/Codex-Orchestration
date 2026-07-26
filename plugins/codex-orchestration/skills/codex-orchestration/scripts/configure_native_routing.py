@@ -10,6 +10,8 @@ readback verification.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,12 +26,23 @@ import threading
 import time
 from typing import Any
 
+try:  # The installer is supported on Unix desktop hosts.
+    import fcntl
+except ImportError:  # pragma: no cover - defensive package import on non-Unix hosts
+    fcntl = None  # type: ignore[assignment]
+
+try:  # Windows uses its standard byte-range locking API.
+    import msvcrt
+except ImportError:  # pragma: no cover - expected on non-Windows hosts
+    msvcrt = None  # type: ignore[assignment]
+
 from routing_state import (
     FABLE_EFFORTS,
     FABLE_MODEL,
     MANAGED_MARKER,
     ROUTING_TOOL_NAMESPACE,
     RoutingStateError,
+    routing_state_binding,
     validate_routing_state,
 )
 
@@ -39,8 +52,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - Python < 3.11
     raise SystemExit("Python 3.11 or newer is required (missing tomllib).") from exc
 
 
-POLICY_VERSION = 4
-STATE_SCHEMA = 4
+POLICY_VERSION = 5
+STATE_SCHEMA = 5
 STATE_FILENAME = ".codex-orchestration-routing.json"
 PROBE_VALUE = "CODEX_ORCHESTRATION_CAPABILITY_PROBE"
 PLUGIN_ID = "codex-orchestration@codex-orchestration"
@@ -107,6 +120,21 @@ def parse_args() -> argparse.Namespace:
         "--executor-effort",
         default="auto",
         help="Exact supported effort, or auto (resolved to the catalog default).",
+    )
+    executor_fallback = parser.add_mutually_exclusive_group()
+    executor_fallback.add_argument(
+        "--executor-fallback-model",
+        help="Exact direct model ID to retry once after an eligible executor lookup failure.",
+    )
+    executor_fallback.add_argument(
+        "--clear-executor-fallback",
+        action="store_true",
+        help="Remove the saved executor fallback during setup.",
+    )
+    parser.add_argument(
+        "--executor-fallback-effort",
+        default="auto",
+        help="Exact supported fallback effort, or auto (resolved to the catalog default).",
     )
 
     planner = parser.add_mutually_exclusive_group()
@@ -184,6 +212,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         (
             args.executor_model,
             args.executor_agent,
+            args.executor_fallback_model,
+            args.clear_executor_fallback,
             args.planner_model,
             args.planner_agent,
             args.planner_fable,
@@ -192,6 +222,7 @@ def _validate_args(args: argparse.Namespace) -> None:
             args.advisor_fable,
             args.designer_model,
             args.executor_effort != "auto",
+            args.executor_fallback_effort != "auto",
             args.planner_effort != "auto",
             args.advisor_effort != "auto",
             args.designer_effort != "auto",
@@ -221,6 +252,21 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ConfigurationError(
             "A custom executor agent owns its effort; omit --executor-effort."
         )
+    if args.executor_fallback_effort != "auto" and not args.executor_fallback_model:
+        raise ConfigurationError(
+            "--executor-fallback-effort requires --executor-fallback-model."
+        )
+    if args.executor_fallback_model and not args.executor_model:
+        raise ConfigurationError(
+            "An executor fallback requires a direct --executor-model primary."
+        )
+    if (
+        args.executor_fallback_model
+        and args.executor_model == args.executor_fallback_model
+    ):
+        raise ConfigurationError(
+            "Executor fallback must differ from the primary executor model."
+        )
     if args.planner_agent and args.planner_effort != "auto":
         raise ConfigurationError(
             "A custom planner agent owns its effort; omit --planner-effort."
@@ -239,6 +285,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
     for label, value, pattern in (
         ("executor model", args.executor_model, MODEL_RE),
+        ("executor fallback model", args.executor_fallback_model, MODEL_RE),
         ("planner model", args.planner_model, MODEL_RE),
         ("advisor model", args.advisor_model, MODEL_RE),
         ("designer model", args.designer_model, MODEL_RE),
@@ -250,6 +297,7 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise ConfigurationError(f"Invalid {label}: {value!r}.")
     for label, value in (
         ("executor effort", args.executor_effort),
+        ("executor fallback effort", args.executor_fallback_effort),
         ("planner effort", args.planner_effort),
         ("advisor effort", args.advisor_effort),
         ("designer effort", args.designer_effort),
@@ -410,7 +458,7 @@ class AppServer:
                     "clientInfo": {
                         "name": "codex_orchestration_installer",
                         "title": "Codex Orchestration Installer",
-                        "version": "0.8.0",
+                        "version": "0.9.0",
                     },
                     "capabilities": {"experimentalApi": True},
                 },
@@ -612,10 +660,17 @@ def validate_planning_routes(
 
 
 def _read_state(path: Path) -> dict[str, Any] | None:
+    state, _ = _read_state_with_revision(path)
+    return state
+
+
+def _read_state_with_revision(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """Read one secure state-file snapshot and its byte-exact revision digest."""
+
     try:
         info = path.lstat()
     except FileNotFoundError:
-        return None
+        return None, None
     except OSError as exc:
         raise ConfigurationError(f"Could not inspect routing state {path}: {exc}") from exc
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
@@ -623,11 +678,12 @@ def _read_state(path: Path) -> dict[str, Any] | None:
     if info.st_nlink != 1:
         raise ConfigurationError(f"Routing state has multiple hard links: {path}")
     try:
-        state = json.loads(path.read_text(encoding="utf-8"))
+        payload = path.read_bytes()
+        state = json.loads(payload.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ConfigurationError(f"Could not read routing state {path}: {exc}") from exc
     try:
-        return validate_routing_state(state)
+        return validate_routing_state(state), hashlib.sha256(payload).hexdigest()
     except RoutingStateError as exc:
         raise ConfigurationError("Saved routing state is invalid.") from exc
 
@@ -679,6 +735,67 @@ def _write_state(path: Path, state: dict[str, Any]) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+@contextmanager
+def _state_lock(path: Path):
+    """Serialize state CAS operations between installer processes."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / f".{path.name}.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    locked = False
+    try:
+        if fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        elif msvcrt is not None:
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+        else:  # pragma: no cover - supported desktop platforms expose one backend
+            raise ConfigurationError(
+                "Routing-state compare-and-swap has no supported file-lock backend."
+            )
+        locked = True
+        yield
+    finally:
+        if locked and fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        elif locked and msvcrt is not None:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        os.close(descriptor)
+
+
+def _require_state_lock_backend() -> None:
+    """Fail before config mutation on an unsupported host."""
+
+    if fcntl is None and msvcrt is None:
+        raise ConfigurationError(
+            "Routing-state compare-and-swap has no supported file-lock backend."
+        )
+
+
+def _write_state_cas(
+    path: Path,
+    state: dict[str, Any],
+    expected_revision: str | None,
+) -> str:
+    """Persist state only if the original byte snapshot is still current."""
+
+    with _state_lock(path):
+        _, current_revision = _read_state_with_revision(path)
+        if current_revision != expected_revision:
+            raise ConfigurationError(
+                "Saved routing state changed concurrently; its valid replacement was preserved."
+            )
+        _write_state(path, state)
+        _, written_revision = _read_state_with_revision(path)
+        if written_revision is None:  # pragma: no cover - impossible after successful replace
+            raise ConfigurationError("Routing state disappeared during compare-and-swap.")
+        return written_revision
+
+
 def _remove_state(path: Path) -> None:
     if not path.exists():
         return
@@ -692,6 +809,19 @@ def _remove_state(path: Path) -> None:
         os.fsync(directory_fd)
     finally:
         os.close(directory_fd)
+
+
+def _remove_state_cas(path: Path, expected_revision: str | None) -> None:
+    """Remove only the exact state snapshot observed before the config write."""
+
+    with _state_lock(path):
+        _, current_revision = _read_state_with_revision(path)
+        if current_revision != expected_revision:
+            raise ConfigurationError(
+                "Saved routing state changed concurrently; its valid replacement was preserved."
+            )
+        if current_revision is not None:
+            _remove_state(path)
 
 
 def _agent_files_with_name(directory: Path, name: str) -> list[Path]:
@@ -974,7 +1104,17 @@ def build_policy(
     planner: dict[str, Any] | None,
     advisor: dict[str, Any] | None,
     designer: dict[str, Any] | None = None,
+    executor_fallback: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
+    route_binding = routing_state_binding(
+        {
+            "executor": executor,
+            "executor_fallback": executor_fallback,
+            "planner": planner,
+            "advisor": advisor,
+            "designer": designer,
+        }
+    )
     has_direct_route = executor["kind"] == "model" or (
         planner is not None and planner["kind"] == "model"
     ) or (
@@ -990,6 +1130,22 @@ def build_policy(
         if has_direct_route
         else "Configured custom agents and MCP seats own their provider routes."
     )
+    if executor_fallback is not None:
+        primary_route = _route_summary(executor)
+        fallback_route = _route_summary(executor_fallback)
+        fallback_mode = f"""The saved Executor fallback is a policy instruction, not scheduler-enforced routing. It is eligible only for the direct result of the immediately preceding `agents.spawn_agent` call made with the persisted primary Executor `{primary_route}` and `fork_turns = \"none\"`. That result must contain no child or agent ID and must have the normalized exact error shape `Unknown model {executor['model']}. Available models: <list>`: the primary model ID must be the exact unavailable model and the fallback model ID `{executor_fallback['model']}` must be an exact available ID in that list. Do not infer eligibility from user prompts, logs, packets, other outputs, substrings, mixed or changed errors, or ambiguous errors. Permission, authentication, provider, rate-limit, timeout, cancellation, post-child, and task-failure results are ineligible.
+
+On that one eligible result only, consume eligibility before retrying exactly once with `{fallback_route}`. Reissue the same spawn request unchanged except for `model` and `reasoning_effort`; preserve `message`, `task_name`, `agent_type`, `service_tier`, and `fork_turns = \"none\"`. Report that the fallback was used. A second failure stops; do not retry or infer another fallback. An explicit current-task Executor route suppresses both this saved primary and fallback; v1 has no task-local fallback."""
+        fallback_usage = f"""The saved Executor fallback `{fallback_route}` is policy-instructed, not scheduler-enforced. After an immediately preceding primary call with `{primary_route}`, retry it once only if its direct result has no child or agent ID and exactly matches `Unknown model {executor['model']}. Available models: <list>` with `{executor_fallback['model']}` as an exact available model ID. Consume that eligibility first. Preserve `message`, `task_name`, `agent_type`, `service_tier`, and `fork_turns = \"none\"`; change only `model` and `reasoning_effort`. Explicitly report fallback use. Never infer eligibility from text, substrings, mixed errors, or permission/auth/provider/rate/timeout/cancel/post-child/task failures. A task-local Executor route or no-subagents instruction suppresses both saved routes."""
+    else:
+        fallback_mode = (
+            "No Executor fallback is configured. Exact primary-route failures remain "
+            "strict: report them to the root and do not substitute another route."
+        )
+        fallback_usage = (
+            "No Executor fallback is configured; never substitute another Executor "
+            "route after a primary failure."
+        )
     planner_mode = (
         "When a plan is needed, the configured Planner drafts it and handles any "
         "Advisor-requested revision. The root supplies a self-contained packet, owns "
@@ -1031,6 +1187,8 @@ def build_policy(
     mode = f"""{MANAGED_MARKER}
 This adds model routing to Codex's existing multi-agent flow; it is not a second scheduler.
 
+{route_binding}
+
 If you are the root task model, you are the orchestrator. Own intent, planning, architecture, decomposition, delegation, integration, review, final verification, and the user-facing answer. Codex still decides whether a plan or subagent helps, how many independent slices exist, and what can run safely in parallel. Keep simple, tightly coupled, context-heavy, or root-owned work with the root. Do not delegate merely to prove the policy is active.
 
 {planner_mode}
@@ -1038,6 +1196,8 @@ If you are the root task model, you are the orchestrator. Own intent, planning, 
 {advisor_mode}
 
 {designer_mode}
+
+{fallback_mode}
 
 The root owns the plan version, cumulative findings ledger, review count, validation, adjudication, and release to Executor. There is no Finalizer seat. For Advisor rounds two through five, send only the current plan and version plus a compact cumulative ledger, not prior transcripts. Ask the Advisor to confirm or contest dispositions without blindly repeating accepted findings. Reject a stale plan version or an invalid or incomplete ledger and halt before Executor.
 
@@ -1095,7 +1255,11 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
     usage = f"""{MANAGED_MARKER}
 If you are the root task model, you are the orchestrator. Apply these routes only to children you decide to create.
 
+{route_binding}
+
 For delegated executor work, call this tool with {_spawn_route(executor)}, fork_turns = "none". Send a self-contained task packet.
+
+{fallback_usage}
 
 {planner_hint}
 
@@ -1105,7 +1269,7 @@ For delegated executor work, call this tool with {_spawn_route(executor)}, fork_
 
 {provider_guard}
 
-Never use fork_turns = "all" with model, reasoning_effort, or agent_type: a full-history fork inherits the root route and rejects those overrides. Never silently substitute the root model when an exact child route is unavailable. Report the unavailable route to the root. A user's explicit current-task model, effort, agent, or no-subagents instruction overrides this saved default, but a task-local Planner and Advisor must still be distinct: reject the same direct model ID, the same custom-agent name, or Fable in both seats.
+Never use fork_turns = "all" with model, reasoning_effort, or agent_type: a full-history fork inherits the root route and rejects those overrides. Never silently substitute the root model when an exact child route is unavailable. Report the unavailable route to the root. A user's explicit current-task model, effort, agent, or no-subagents instruction overrides this saved default; an explicit task-local Executor route suppresses both saved Executor routes. A task-local Planner and Advisor must still be distinct: reject the same direct model ID, the same custom-agent name, or Fable in both seats.
 
 If you are a spawned child, do not call this tool or create descendants. Finish only your assigned packet and return to the root.
 """
@@ -1299,6 +1463,16 @@ def _status(
         fable_available = True
         if state_matches:
             print(f"Executor: {_route_summary(state['executor'])}")
+            executor_fallback = state.get("executor_fallback")
+            print(
+                "Executor fallback: "
+                + (
+                    f"{_route_summary(executor_fallback)} "
+                    "(user-authorized; callability unverified)"
+                    if isinstance(executor_fallback, dict)
+                    else "none"
+                )
+            )
             planner = state.get("planner")
             advisor = state.get("advisor")
             designer = state.get("designer")
@@ -1393,6 +1567,7 @@ def _prepare_setup_state(
     mode: str,
     usage: str,
     executor: dict[str, Any],
+    executor_fallback: dict[str, Any] | None,
     planner: dict[str, Any] | None,
     advisor: dict[str, Any] | None,
     designer: dict[str, Any] | None,
@@ -1622,6 +1797,7 @@ def _prepare_setup_state(
         "managed_by": "codex-orchestration",
         "config_file": str(config_path),
         "executor": executor,
+        "executor_fallback": executor_fallback,
         "planner": planner,
         "advisor": advisor,
         "designer": designer,
@@ -1839,6 +2015,7 @@ def _disable(
     config: dict[str, Any],
     version: str | None,
     state: dict[str, Any] | None,
+    state_revision: str | None,
     apply: bool,
 ) -> int:
     current = _current_values(config)
@@ -1850,6 +2027,7 @@ def _disable(
             print("Native routing is already inactive.")
             return 0
         edits = []
+        rollback: list[dict[str, Any]] = []
         if managed_mode:
             edits.append(
                 {
@@ -1858,11 +2036,25 @@ def _disable(
                     "mergeStrategy": "replace",
                 }
             )
+            rollback.append(
+                {
+                    "keyPath": "features.multi_agent_v2.multi_agent_mode_hint_text",
+                    "value": current["mode"],
+                    "mergeStrategy": "replace",
+                }
+            )
         if managed_usage:
             edits.append(
                 {
                     "keyPath": "features.multi_agent_v2.usage_hint_text",
                     "value": None,
+                    "mergeStrategy": "replace",
+                }
+            )
+            rollback.append(
+                {
+                    "keyPath": "features.multi_agent_v2.usage_hint_text",
+                    "value": current["usage"],
                     "mergeStrategy": "replace",
                 }
             )
@@ -1895,6 +2087,13 @@ def _disable(
                     "mergeStrategy": "replace",
                 }
             ]
+            rollback = [
+                {
+                    "keyPath": "features.multi_agent_v2",
+                    "value": current["feature"],
+                    "mergeStrategy": "replace",
+                }
+            ]
         else:
             edits = [
                 edit
@@ -1918,6 +2117,28 @@ def _disable(
                 )
                 if edit is not None
             ]
+            rollback = [
+                edit
+                for edit in (
+                    snapshot_edit(
+                        "features.multi_agent_v2.hide_spawn_agent_metadata",
+                        snapshot(current["metadata"]),
+                    ),
+                    snapshot_edit(
+                        "features.multi_agent_v2.tool_namespace",
+                        snapshot(current["namespace"]),
+                    ),
+                    snapshot_edit(
+                        "features.multi_agent_v2.multi_agent_mode_hint_text",
+                        snapshot(current["mode"]),
+                    ),
+                    snapshot_edit(
+                        "features.multi_agent_v2.usage_hint_text",
+                        snapshot(current["usage"]),
+                    ),
+                )
+                if edit is not None
+            ]
         previous_mcp = previous.get("mcp")
         if isinstance(previous_mcp, dict):
             edits.extend(
@@ -1928,14 +2149,45 @@ def _disable(
                 )
                 if edit is not None
             )
+            rollback.extend(
+                edit
+                for edit in (
+                    snapshot_edit(fable_key_path(server), snapshot(current["mcp"][server]))
+                    for server in previous_mcp
+                )
+                if edit is not None
+            )
         print("Will restore the pre-setup values of every owned routing field.")
     if not apply:
         print("Dry run only. Re-run with --disable --apply after reviewing this preview.")
         return 0
+    _require_state_lock_backend()
     result = _batch_write(app, edits, version, reload_user_config=True)
     if result.get("status") not in {"ok", "okOverridden"}:
         raise ConfigurationError(f"Unexpected config write status: {result.get('status')!r}")
-    _remove_state(state_path)
+    try:
+        _remove_state_cas(state_path, state_revision)
+    except ConfigurationError as state_exc:
+        try:
+            rollback_result = _batch_write(
+                app,
+                rollback,
+                result.get("version"),
+                reload_user_config=True,
+            )
+            if rollback_result.get("status") not in {"ok", "okOverridden"}:
+                raise ConfigurationError(
+                    f"unexpected rollback status {rollback_result.get('status')!r}"
+                )
+        except ConfigurationError as rollback_exc:
+            raise ConfigurationError(
+                "Saved routing state changed concurrently and was preserved, but "
+                f"the disable config rollback failed: {rollback_exc}"
+            ) from rollback_exc
+        raise ConfigurationError(
+            "Saved routing state changed concurrently and was preserved; the disable "
+            "config change was rolled back."
+        ) from state_exc
     print("Native routing disabled. Start a new Codex task to clear the loaded policy.")
     return 0
 
@@ -1972,10 +2224,17 @@ def main() -> int:
                     "Could not obtain the user config version needed for a safe write."
                 )
             state_path = app.codex_home / STATE_FILENAME
-            state = _read_state(state_path)
+            state, state_revision = _read_state_with_revision(state_path)
             _validate_state_config(state, app.config_path)
             if args.disable:
-                return _disable(app, config, version, state, args.apply)
+                return _disable(
+                    app,
+                    config,
+                    version,
+                    state,
+                    state_revision,
+                    args.apply,
+                )
             if args.repair:
                 return _repair(
                     app,
@@ -1989,6 +2248,7 @@ def main() -> int:
             catalog: dict[str, dict[str, Any]] = {}
             if (
                 args.executor_model
+                or args.executor_fallback_model
                 or args.planner_model
                 or args.advisor_model
                 or args.designer_model
@@ -2005,7 +2265,7 @@ def main() -> int:
                     args.executor_model,
                     args.executor_effort,
                     catalog,
-                    args.confirm_unlisted_models,
+                    args.confirm_unlisted_models and not args.executor_fallback_model,
                 )
                 executor = {
                     "kind": "model",
@@ -2014,6 +2274,54 @@ def main() -> int:
                 }
             else:
                 executor = {"kind": "agent", "agent": args.executor_agent}
+
+            saved_executor_fallback = (
+                state.get("executor_fallback")
+                if isinstance(state, dict)
+                and isinstance(state.get("executor_fallback"), dict)
+                else None
+            )
+            if args.clear_executor_fallback:
+                executor_fallback: dict[str, Any] | None = None
+            elif args.executor_fallback_model:
+                fallback_effort = resolve_model_effort(
+                    "Executor fallback",
+                    args.executor_fallback_model,
+                    args.executor_fallback_effort,
+                    catalog,
+                    False,
+                )
+                executor_fallback = {
+                    "kind": "model",
+                    "model": args.executor_fallback_model,
+                    "effort": fallback_effort,
+                }
+            else:
+                executor_fallback = saved_executor_fallback
+            if executor_fallback is not None:
+                if executor["kind"] != "model":
+                    raise ConfigurationError(
+                        "A custom executor agent cannot retain or use an executor fallback; "
+                        "pass --clear-executor-fallback."
+                    )
+                if executor["model"] not in catalog:
+                    raise ConfigurationError(
+                        "A primary executor with a saved fallback must be present in "
+                        "this App Server model catalog; clear the fallback or choose "
+                        "a listed primary model."
+                    )
+                if executor["model"] == executor_fallback["model"]:
+                    raise ConfigurationError(
+                        "Executor fallback must differ from the primary executor model."
+                    )
+                if executor_fallback is saved_executor_fallback:
+                    resolve_model_effort(
+                        "Saved executor fallback",
+                        executor_fallback["model"],
+                        executor_fallback["effort"],
+                        catalog,
+                        False,
+                    )
 
             planner: dict[str, Any] | None = None
             advisor: dict[str, Any] | None = None
@@ -2099,13 +2407,16 @@ def main() -> int:
                 planner,
                 advisor,
             )
-            mode, usage = build_policy(executor, planner, advisor, designer)
+            mode, usage = build_policy(
+                executor, planner, advisor, designer, executor_fallback
+            )
             new_state, edits, rollback = _prepare_setup_state(
                 config,
                 state,
                 mode,
                 usage,
                 executor,
+                executor_fallback,
                 planner,
                 advisor,
                 designer,
@@ -2115,6 +2426,15 @@ def main() -> int:
             print(f"Config: {app.config_path}")
             print("Orchestrator: model selected when each Codex task starts")
             print(f"Executor: {_route_summary(executor)}")
+            print(
+                "Executor fallback: "
+                + (
+                    f"{_route_summary(executor_fallback)} "
+                    "(user-authorized; callability unverified)"
+                    if executor_fallback is not None
+                    else "none"
+                )
+            )
             print(f"Planner: {_route_summary(planner) if planner else 'root'}")
             print(f"Advisor: {_route_summary(advisor) if advisor else 'none'}")
             print(f"Designer: {_route_summary(designer) if designer else 'none'}")
@@ -2148,6 +2468,7 @@ def main() -> int:
                 print("Dry run only. Re-run with --apply after reviewing this preview.")
                 return 0
 
+            _require_state_lock_backend()
             result = _batch_write(app, edits, version, reload_user_config=True)
             if result.get("status") == "okOverridden":
                 try:
@@ -2177,7 +2498,11 @@ def main() -> int:
                     f"Unexpected config write status: {result.get('status')!r}"
                 )
             try:
-                _write_state(state_path, new_state)
+                new_state_revision = _write_state_cas(
+                    state_path,
+                    new_state,
+                    state_revision,
+                )
             except (ConfigurationError, OSError) as state_exc:
                 try:
                     rollback_result = _batch_write(
@@ -2234,9 +2559,9 @@ def main() -> int:
                             f"{rollback_result.get('status')!r}"
                         )
                     if state is None:
-                        _remove_state(state_path)
+                        _remove_state_cas(state_path, new_state_revision)
                     else:
-                        _write_state(state_path, state)
+                        _write_state_cas(state_path, state, new_state_revision)
                 except (ConfigurationError, OSError) as rollback_exc:
                     raise ConfigurationError(
                         "Codex accepted the write but current-workspace effective "

@@ -7,6 +7,7 @@ packaged entry point can import the same contract validator.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -22,8 +23,9 @@ FABLE_SERVERS = frozenset(
         "fable-advisor-py",
     }
 )
+ROUTE_BINDING_PREFIX = "Routing-state binding (schema 5): "
 
-_SCHEMA_POLICY_PAIRS = {1: 1, 2: 2, 3: 3, 4: 4}
+_SCHEMA_POLICY_PAIRS = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,199}$")
 _AGENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EFFORT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -47,6 +49,36 @@ _BASE_PREVIOUS_KEYS = frozenset({"mode", "usage", "metadata", "namespace"})
 
 class RoutingStateError(ValueError):
     """The persisted value is not one exact supported routing-state contract."""
+
+
+def routing_state_binding(state: dict[str, Any]) -> str:
+    """Return the canonical schema-5 route binding embedded in both hints.
+
+    The hint text is the executable policy surface.  Binding every persisted
+    route to an exact, canonical line in that text makes route-only state-file
+    edits detectable by every consumer of the shared validator.
+    """
+
+    routes = {
+        "advisor": state["advisor"],
+        "designer": state["designer"],
+        "executor": state["executor"],
+        "executor_fallback": state["executor_fallback"],
+        "planner": state["planner"],
+    }
+    return ROUTE_BINDING_PREFIX + json.dumps(
+        routes,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _has_exact_route_binding(value: Any, state: dict[str, Any]) -> bool:
+    if type(value) is not str:
+        return False
+    binding = routing_state_binding(state)
+    return sum(line == binding for line in value.splitlines()) == 1
 
 
 def _require(condition: bool, detail: str) -> None:
@@ -203,7 +235,7 @@ def _validate_scalar_conversion(state: dict[str, Any], managed: dict[str, Any]) 
 
 
 def validate_routing_state(value: Any) -> dict[str, Any]:
-    """Validate and return one exact, complete persisted schema 1 through 4.
+    """Validate and return one exact, complete persisted schema 1 through 5.
 
     Unknown keys and future extensions are rejected intentionally. Callers must
     perform their own secure file read and any caller-specific path/seat checks.
@@ -227,6 +259,8 @@ def validate_routing_state(value: Any) -> dict[str, Any]:
         expected_top.add("planner")
     if schema >= 4:
         expected_top.add("designer")
+    if schema >= 5:
+        expected_top.add("executor_fallback")
     _require(set(value) == expected_top, "top-level state shape is unsupported")
     _require(value["managed_by"] == "codex-orchestration", "state owner is invalid")
     _require(
@@ -236,7 +270,25 @@ def validate_routing_state(value: Any) -> dict[str, Any]:
         "config path is invalid",
     )
 
-    _validate_route(value["executor"], seat="executor", schema=schema)
+    executor_kind = _validate_route(value["executor"], seat="executor", schema=schema)
+    executor_fallback = value.get("executor_fallback")
+    if schema >= 5:
+        if executor_fallback is not None:
+            fallback_kind = _validate_route(
+                executor_fallback, seat="executor fallback", schema=schema
+            )
+            _require(
+                fallback_kind == "model",
+                "executor fallback must use a direct model route",
+            )
+            _require(
+                executor_kind == "model",
+                "custom executor agents cannot have an executor fallback",
+            )
+            _require(
+                executor_fallback["model"] != value["executor"]["model"],
+                "executor fallback must differ from the primary model",
+            )
     planner = value.get("planner")
     advisor = value["advisor"]
     designer = value.get("designer")
@@ -320,4 +372,13 @@ def validate_routing_state(value: Any) -> dict[str, Any]:
         _require(not true_servers, "MCP state enables a launcher without a Fable seat")
 
     _validate_scalar_conversion(value, managed)
+    if schema >= 5:
+        _require(
+            _has_exact_route_binding(managed["mode"], value),
+            "managed mode does not bind the saved schema-5 routes",
+        )
+        _require(
+            _has_exact_route_binding(managed["usage"], value),
+            "managed usage does not bind the saved schema-5 routes",
+        )
     return value

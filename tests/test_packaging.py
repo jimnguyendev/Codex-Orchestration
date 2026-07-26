@@ -40,7 +40,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(attestation["schema"], 1)
         self.assertIn(attestation["risk_tier"], {"docs", "behavior", "security-state"})
-        self.assertEqual(attestation["repository"], "Cjbuilds/Codex-Orchestration")
+        self.assertEqual(attestation["repository"], "jimnguyendev/Codex-Orchestration")
         self.assertEqual(attestation["base_branch"], "main")
         self.assertRegex(attestation["reviewed_head_sha"], r"^[0-9a-f]{40}$")
         self.assertIsInstance(attestation["negative_test_evidence"], list)
@@ -205,7 +205,17 @@ class PackagingTests(unittest.TestCase):
 
         self.assertEqual(manifest["name"], "codex-orchestration")
         self.assertEqual(manifest["skills"], "./skills/")
-        self.assertEqual(manifest["version"], "0.8.0")
+        self.assertEqual(manifest["version"], "0.9.0")
+        self.assertEqual(
+            manifest["repository"],
+            "https://github.com/jimnguyendev/Codex-Orchestration",
+        )
+        self.assertEqual(
+            manifest["homepage"],
+            "https://github.com/jimnguyendev/Codex-Orchestration#readme",
+        )
+        self.assertEqual(manifest["author"]["name"], "CJ Zafir")
+        self.assertEqual(manifest["license"], "MIT")
         self.assertEqual(manifest["mcpServers"], "./.mcp.json")
         self.assertRegex(
             manifest["version"],
@@ -218,6 +228,35 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(entry["source"]["path"], "./plugins/codex-orchestration")
         self.assertRegex(skill, r"(?m)^name: codex-orchestration$")
 
+    def test_fork_release_identity_preserves_attribution(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        release = (REPO_ROOT / "RELEASE.md").read_text(encoding="utf-8")
+        security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+        changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        threat_model = (
+            REPO_ROOT / "docs" / "executor-fallback-threat-model.md"
+        ).read_text(encoding="utf-8")
+
+        fork = "jimnguyendev/Codex-Orchestration"
+        self.assertIn(f"codex plugin marketplace add {fork}", readme)
+        self.assertIn(f"https://github.com/{fork}", skill)
+        self.assertIn(fork, release)
+        self.assertIn(fork, security)
+        self.assertIn("## 0.9.0 — Unreleased", changelog)
+        self.assertIn("CJ Zafir", readme)
+        self.assertIn("MIT license", readme)
+        for threat in (
+            "Silent downgrade",
+            "Tampered state",
+            "Error spoofing",
+            "Provenance confusion",
+            "Double execution",
+            "Version skew",
+            "CAS race",
+        ):
+            self.assertIn(threat, threat_model)
+
     def test_native_and_custom_configurators_are_packaged(self) -> None:
         native = SKILL_ROOT / "scripts" / "configure_native_routing.py"
         custom = SKILL_ROOT / "scripts" / "configure_orchestration.py"
@@ -228,7 +267,7 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse((SKILL_ROOT / "scripts" / "update_plugin.py").exists())
         self.assertIn("config/batchWrite", native.read_text(encoding="utf-8"))
         self.assertIn('"--repair"', native.read_text(encoding="utf-8"))
-        self.assertIn('"version": "0.8.0"', native.read_text(encoding="utf-8"))
+        self.assertIn('"version": "0.9.0"', native.read_text(encoding="utf-8"))
         self.assertIn("validate_routing_state", routing_state.read_text(encoding="utf-8"))
         self.assertIn("Standalone custom agent", custom.read_text(encoding="utf-8"))
 
@@ -332,7 +371,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("@openai/codex@0.144.1", workflow)
         smoke_text = smoke.read_text(encoding="utf-8")
         self.assertIn('OLD_VERSION = "0.5.0"', smoke_text)
-        self.assertIn('NEW_VERSION = "0.8.0"', smoke_text)
+        self.assertIn('NEW_VERSION = "0.9.0"', smoke_text)
         self.assertIn("old Advisor-only cache unexpectedly supports Planner", smoke_text)
         self.assertIn("Upgraded installed skill is missing Planner contract", smoke_text)
         self.assertIn("reused the Advisor-only 0.5.0 cache directory", smoke_text)

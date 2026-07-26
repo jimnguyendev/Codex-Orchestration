@@ -32,7 +32,7 @@ PLUGIN_ID = "codex-orchestration@codex-orchestration"
 MARKETPLACE_NAME = "codex-orchestration"
 OLD_RELEASE = "a1d9c546665c3253cdcaa8fe5c0c060199a6126c"
 OLD_VERSION = "0.5.0"
-NEW_VERSION = "0.8.0"
+NEW_VERSION = "0.9.0"
 COMMAND_TIMEOUT_SECONDS = 60
 
 
@@ -610,10 +610,19 @@ def main() -> int:
             )
             if "Executor: gpt-5.6-luna@xhigh" not in direct_status.stdout:
                 raise SmokeFailure("Direct native status lost the selected model route")
+            if "Executor fallback: none" not in direct_status.stdout:
+                raise SmokeFailure("Direct native status lost the schema-5 fallback field")
             if "Designer: gpt-5.6-luna@high" not in direct_status.stdout:
                 raise SmokeFailure("Direct native status lost the selected Designer route")
 
             state_path = codex_home / ".codex-orchestration-routing.json"
+            installed_state = json.loads(state_path.read_text(encoding="utf-8"))
+            assert_equal(installed_state.get("schema"), 5, "native routing state schema")
+            assert_equal(
+                installed_state.get("executor_fallback"),
+                None,
+                "native routing state empty Executor fallback",
+            )
             state_before_repair = state_path.read_bytes()
             config_path = codex_home / "config.toml"
             drifted_config = config_path.read_text(encoding="utf-8")

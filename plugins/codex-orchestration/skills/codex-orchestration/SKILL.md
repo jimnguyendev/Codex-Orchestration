@@ -145,7 +145,8 @@ plugin. It cannot be combined with setup, status, disable, seat settings, custom
 role operations, or task work. Resolve the absolute Codex binary used by the active
 host. First run `codex plugin list --json` and require exactly one enabled
 `codex-orchestration@codex-orchestration` entry whose marketplace source type is
-`git` and source is the canonical HTTPS GitHub repository. Refuse local, disabled,
+`git` and source is the canonical HTTPS GitHub repository
+`https://github.com/jimnguyendev/Codex-Orchestration`. Refuse local, disabled,
 missing, duplicate, or unexpected sources without mutation. Then run only:
 
 ```bash
@@ -354,7 +355,47 @@ python3 <skill-dir>/scripts/configure_native_routing.py \
   --apply
 ```
 
-Add `--advisor-model` and `--advisor-effort` for a same-provider Codex advisor. For Claude Fable 5, use `--advisor-fable`; add `--advisor-effort low|medium|high|xhigh|max` when the user chooses one. Omitting Fable effort defaults to `high`, while user-facing `ultra` is normalized to Claude Code's `max`. The configurator verifies that the installed Claude Code CLI advertises the selected effective effort. It also requires Claude Code to be logged in through a first-party Pro or Max account, chooses an available Python 3.11+ MCP launcher, and performs only an auth/capability check during setup. It never extracts a token, writes a credential, or makes a model call during setup or status. Omission persists `advisor: none`.
+### Saved Executor fallback (v1)
+
+This optional fallback belongs only to a saved direct Executor policy. Supply its
+flags only when the user explicitly requests a saved fallback; a normal Executor
+setup must leave `executor_fallback` null. Set it with
+`--executor-fallback-model <different-direct-model>` and, when needed,
+`--executor-fallback-effort <effort>`. It requires `--executor-model`; custom
+executor agents cannot use it. A later setup that specifies neither fallback flag
+preserves the saved fallback. Use `--clear-executor-fallback` during setup to remove
+it explicitly. Never combine clear with a fallback model or effort.
+
+Explicitly authorized Luna-to-Terra fallback example:
+
+```bash
+python3 <skill-dir>/scripts/configure_native_routing.py \
+  --codex-bin <active-codex-binary> \
+  --executor-model gpt-5.6-luna \
+  --executor-effort xhigh \
+  --executor-fallback-model gpt-5.6-terra \
+  --executor-fallback-effort high
+```
+
+The saved policy lets primary Luna retry Terra exactly once only when the direct,
+immediately preceding `agents.spawn_agent` result has no child or agent provenance
+and exactly normalizes to `Unknown model gpt-5.6-luna. Available models: <list>`.
+The unavailable primary and available fallback IDs must match the saved exact IDs.
+Consume eligibility before the retry; do not infer it from a prompt, log, packet,
+substring, mixed error, or any later output. The retry preserves every request field
+(`message`, `task_name`, `agent_type`, `service_tier`, and `fork_turns`) and changes
+only `model` and `reasoning_effort`. Report that fallback use explicitly.
+
+No other failure is eligible: mixed or ambiguous results, permission,
+authentication, provider, rate-limit, timeout, cancellation, post-child, and task
+errors stop without substitution. A current-task Executor override disables both
+the saved primary and fallback. v1 deliberately has no task-local fallback,
+and an explicit `no subagents` instruction wins before any spawn or retry.
+
+This is a model-visible policy instruction, not an engine scheduler feature or a
+guarantee that either child route is live or callable in the current task.
+
+Add `--advisor-model` and `--advisor-effort` for a same-provider Codex advisor. For Claude Fable 5, use `--advisor-fable`; add `--advisor-effort low|medium|high|xhigh|max` when the user chooses one. Omitting Fable effort defaults to `high`, while user-facing `ultra` is normalized to Claude Code's `max`. The configurator verifies that the installed Claude Code CLI advertises the selected effective effort. It also requires Claude Code to be logged in through a first-party Pro, Max, or Team account, chooses an available Python 3.11+ MCP launcher, and performs only an auth/capability check during setup. It never extracts a token, writes a credential, or makes a model call during setup or status. Omission persists `advisor: none`.
 
 Add `--planner-model` and `--planner-effort` for a same-provider Planner. For Claude Fable 5, use `--planner-fable`; add `--planner-effort low|medium|high|xhigh|max` when the user chooses one. Planner omission persists no Planner route and means the root plans. A configured Planner and Advisor must not resolve to the same model or agent route; independent review is required.
 
@@ -395,7 +436,7 @@ python3 <skill-dir>/scripts/configure_native_routing.py \
   --status --require-effective
 ```
 
-Run status from the target project. The first form is descriptive. Use `--require-effective` for automation and release gates; it returns nonzero for incompatible clients, conflicts, overrides, incomplete controls, an unavailable Fable or custom-agent route, or orphaned v0.4+ personal roles. Report the current task model as the orchestrator, Planner (`root` when omitted), configured Advisor, Designer, and Executor, whether the personal policy is installed and effective in that workspace, whether effective spawn controls are visible, whether the effective tool namespace is `agents`, the target config path, and checked-client compatibility. State that neither status form proves a live route or infers v2 activation for the model selected in a task; current Sol or Terra is the intended root.
+Run status from the target project. The first form is descriptive. Use `--require-effective` for automation and release gates; it returns nonzero for incompatible clients, conflicts, overrides, incomplete controls, an unavailable Fable or custom-agent route, or orphaned v0.4+ personal roles. Report the current task model as the orchestrator, Planner (`root` when omitted), configured Advisor, Designer, primary Executor and saved Executor fallback when present, whether the personal policy is installed and effective in that workspace, whether effective spawn controls are visible, whether the effective tool namespace is `agents`, the target config path, and checked-client compatibility. State that neither status form proves a live route, fallback eligibility, or v2 activation for the model selected in a task; current Sol or Terra is the intended root.
 
 When status reports `managed fields conflict with local restore state`, do not run
 setup or disable over the conflict and do not assume authentication failed. A literal
@@ -452,7 +493,7 @@ Report authentication as `first-party login ready`; do not expose or restate Cla
 Prerequisites:
 
 - the official `claude` CLI is installed;
-- `claude auth status` reports a first-party Pro or Max login;
+- `claude auth status` reports a first-party Pro, Max, or Team login;
 - a Python 3.11+ launcher is available.
 
 The plugin packages three disabled MCP launcher variants for macOS, Linux, and Windows. Setup enables exactly one compatible variant through the plugin's namespaced config when either Fable seat is selected. At planning or review time the MCP server removes API-key and Bedrock/Vertex/Foundry override variables, re-checks first-party login, and invokes `claude -p --model claude-fable-5` with `--safe-mode`, no tools, no session persistence, prompt suggestions disabled, and JSON output. Each saved seat pins its model and effort; the root cannot replace them through tool arguments.
@@ -539,11 +580,11 @@ This skill and its saved policy must never:
 - parallelize overlapping writes;
 - silently substitute the root model for an unavailable child route.
 
-An explicit `no subagents` instruction always wins. A current-task seat override wins over the saved default for that task only.
+An explicit `no subagents` instruction always wins. A current-task seat override wins over the saved default for that task only. In particular, a current-task Executor override disables the saved primary Executor and its saved fallback; v1 supplies no task-local fallback.
 
 ## Spawn routed children correctly
 
-Inspect the callable subagent interface. A saved current preset should expose the routed tool under `agents`; if only `collaboration` is exposed, do not assume the expanded direct route works. For a task-local fallback, use whichever callable namespace is actually present and pass exact route controls only when its schema exposes them.
+Inspect the callable subagent interface. A saved current preset should expose the routed tool under `agents`; if only `collaboration` is exposed, do not assume the expanded direct route works. Do not turn a current-task Executor route into a fallback: v1 has no task-local Executor fallback.
 
 Every spawn that supplies `model`, `reasoning_effort`, or `agent_type` through this skill must use:
 
@@ -569,6 +610,14 @@ After spawning, use the tool result or client metadata to confirm the accepted r
 - `none`: no Advisor or Designer is configured for that seat.
 
 Tool acceptance proves the requested route was valid and accepted, not necessarily that the client exposes post-start runtime identity. Child prose claiming a model name is not proof. If an exact route fails, report it to the root. An unavailable configured Planner or Advisor halts before Executor work unless the user explicitly made that seat best-effort for the current task; apply the bounded degradation rules below and disclose it. A configured Designer failure blocks work that explicitly requires its design handoff, but does not block unrelated Executor work; the root owns design when Designer was omitted. An unavailable Executor may leave work with the root only when the user did not require delegation or that Executor route. Never describe an unavailable route as successful.
+
+For a saved direct Executor fallback, retry only under the exact v1 contract stated in
+the setup section: the direct immediate `agents.spawn_agent` primary result must
+have no child/agent provenance and exactly identify the saved primary as `Unknown
+model` while listing the saved fallback as available. Retry once, after consuming
+eligibility, with every request field preserved except `model` and
+`reasoning_effort`, then report fallback use. Never retry any ambiguous, mixed,
+permission, auth, provider, rate, timeout, cancellation, post-child, or task error.
 
 ## Planner and Advisor workflow
 
@@ -637,6 +686,11 @@ Parallelize only genuinely independent slices with non-overlapping write ownersh
 ## Task-local and older-client fallback
 
 When the persistent policy is unavailable, apply the supplied seats only to the work in the same invocation. Do not claim that a mutable team was saved.
+
+The name of this section does not authorize an Executor retry policy. A current-task
+Executor override suppresses any saved Executor fallback and v1 provides no
+task-local fallback. `no subagents` also suppresses every spawn. If the explicit
+Executor cannot run, report it as unavailable; do not substitute another model.
 
 Use the strongest exact control the current client exposes:
 

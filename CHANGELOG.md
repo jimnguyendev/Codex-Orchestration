@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0 — Unreleased
+
+- Publish the independently maintained `jimnguyendev/Codex-Orchestration` fork
+  identity while preserving CJ Zafir's original author attribution and MIT license.
+  Canonical marketplace installation, update validation, release, and security
+  reporting now target this fork.
+- Add an opt-in saved direct Executor fallback. A primary Luna route may retry
+  Terra exactly once only after the immediate direct `agents.spawn_agent` call
+  reports the exact `Unknown model` failure with no child-provenance evidence.
+  All ambiguous, authorization, provider, rate, timeout, cancellation,
+  post-child, and task failures remain fail-closed; a task-local Executor override
+  disables the saved fallback.
+- Advance native routing state and policy to schema 5. The saved fallback is a
+  model-visible policy instruction, not a scheduler guarantee or proof that a
+  client can currently call either route.
+
 ## 0.8.0 — Unreleased
 
 - Replace READY External Model execution through Desktop native agents with a

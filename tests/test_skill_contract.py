@@ -177,6 +177,32 @@ Executor — GPT-5.6 Sol high: Activated
         self.assertIn("Do not add `enabled = true`", SKILL)
         self.assertIn('ROUTING_TOOL_NAMESPACE = "agents"', ROUTING_STATE)
 
+    def test_saved_executor_fallback_contract_is_narrow_and_explicit(self) -> None:
+        self.assertIn("## Saved Executor fallback (v1)", SKILL)
+        typical_setup = SKILL.split("Typical dry run and apply:", 1)[1].split(
+            "### Saved Executor fallback (v1)", 1
+        )[0]
+        self.assertNotIn("--executor-fallback-model", typical_setup)
+        self.assertNotIn("--executor-fallback-effort", typical_setup)
+        self.assertIn(
+            "flags only when the user explicitly requests a saved fallback", SKILL
+        )
+        self.assertIn("normal Executor\nsetup must leave `executor_fallback` null", SKILL)
+        self.assertIn("Explicitly authorized Luna-to-Terra fallback example", SKILL)
+        self.assertIn("--executor-fallback-model", SKILL)
+        self.assertIn("--executor-fallback-effort", SKILL)
+        self.assertIn("--clear-executor-fallback", SKILL)
+        self.assertIn("preserves the saved fallback", SKILL)
+        self.assertIn("v1 deliberately has no task-local fallback", SKILL)
+        self.assertIn("exactly normalizes to `Unknown model", SKILL)
+        self.assertIn("no child or agent provenance", SKILL)
+        self.assertIn("only `model` and `reasoning_effort`", SKILL)
+        self.assertIn("Report that fallback use explicitly", SKILL)
+        self.assertIn("not an engine scheduler feature", SKILL)
+        self.assertIn("schema 5 must carry policy version 5", REFERENCE)
+        self.assertIn("`executor_fallback`", REFERENCE)
+        self.assertIn("v1 has no task-local fallback", REFERENCE)
+
     def test_native_config_uses_codex_app_server(self) -> None:
         self.assertIn("Codex App Server's `config/read`", SKILL)
         self.assertIn("`config/batchWrite`", SKILL)
@@ -293,7 +319,7 @@ Executor — GPT-5.6 Sol high: Activated
         self.assertIn("--planner-fable --planner-effort <normalized-effort>", SKILL)
         self.assertIn("built-in cross-provider Planner or Advisor exception", SKILL)
         self.assertIn("All bundled variants are disabled by default", SKILL)
-        self.assertIn("first-party Pro or Max account", SKILL)
+        self.assertIn("first-party Pro, Max, or Team account", SKILL)
         self.assertIn("never extracts a token", SKILL)
         self.assertIn("runtime `modelUsage` to contain the pinned `claude-fable-5`", SKILL)
         self.assertIn("explicit exact helper allowlist", SKILL)

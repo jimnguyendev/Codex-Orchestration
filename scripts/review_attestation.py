@@ -15,7 +15,7 @@ from typing import Any
 
 START_MARKER = "<!-- codex-review-attestation:start -->"
 END_MARKER = "<!-- codex-review-attestation:end -->"
-EXPECTED_REPOSITORY = "Cjbuilds/Codex-Orchestration"
+EXPECTED_REPOSITORY = "jimnguyendev/Codex-Orchestration"
 EXPECTED_BASE = "main"
 EXACT_SHA_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 MAX_EVENT_BYTES = 1_000_000

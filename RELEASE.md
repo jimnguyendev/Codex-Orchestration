@@ -1,7 +1,7 @@
 # Release process
 
 1. Replace `Unreleased` in `CHANGELOG.md` with the release date.
-2. Confirm `.codex-plugin/plugin.json`, the changelog, the installed package, and lifecycle fixture all use the same new semantic version. Never publish different plugin behavior under a version already used by another bundle; fix forward with a new version so Codex cannot reuse the old cache identity.
+2. Confirm `.codex-plugin/plugin.json`, the changelog, the installed package, and lifecycle fixture all use the same new semantic version. Confirm the payload repository, homepage, marketplace source checks, update examples, and security-reporting URL target `jimnguyendev/Codex-Orchestration`, while the original author and MIT license attribution remain intact. Never publish different plugin behavior under a version already used by another bundle; fix forward with a new version so Codex cannot reuse the old cache identity.
 3. Run the source-of-truth local release gate:
 
    ```bash
