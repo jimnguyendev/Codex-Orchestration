@@ -6,7 +6,7 @@ Security fixes are made on the latest released version. Upgrade before reporting
 
 ## Report a vulnerability
 
-Do not open a public issue for a suspected vulnerability. Use [GitHub private vulnerability reporting](https://github.com/Cjbuilds/Codex-Orchestration/security/advisories/new) and include:
+Do not open a public issue for a suspected vulnerability. Use [GitHub private vulnerability reporting](https://github.com/jimnguyendev/Codex-Orchestration/security/advisories/new) and include:
 
 - the affected version and Codex client version;
 - operating system and installation scope;

@@ -28,6 +28,9 @@ These preflight commands are the source of truth for local validation. Local res
 - Bind the review attestation to the exact head SHA. Any later head change invalidates the review.
 - Do not weaken root authority, approvals, permissions, or the `fork_turns = "none"` contract.
 - Update the changelog and public compatibility statements when behavior changes.
+- Keep fork-controlled repository, marketplace, update, release, and security URLs
+  on `jimnguyendev/Codex-Orchestration`; retain original author and license
+  attribution where it is attribution rather than an operational endpoint.
 - Never include credentials or private configuration in fixtures, logs, or routing hints.
 
 All required checks must pass. Resolve review conversations before merge. Releases follow [RELEASE.md](RELEASE.md).

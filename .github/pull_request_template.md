@@ -19,7 +19,7 @@ valid only while the pull request remains draft. `passed` must bind
 {
   "schema": 1,
   "risk_tier": "docs",
-  "repository": "Cjbuilds/Codex-Orchestration",
+  "repository": "jimnguyendev/Codex-Orchestration",
   "base_branch": "main",
   "reviewed_head_sha": "0000000000000000000000000000000000000000",
   "reviewer_identity": "not-required",

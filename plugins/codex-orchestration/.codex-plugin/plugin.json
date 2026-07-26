@@ -1,13 +1,13 @@
 {
   "name": "codex-orchestration",
-  "version": "0.8.0",
-  "description": "Give Codex and audited external models safe, provider-pinned roles.",
+  "version": "0.9.0",
+  "description": "Maintained independent fork of CJ Zafir's Codex Orchestration: safe, provider-pinned roles for Codex and audited external models.",
   "author": {
     "name": "CJ Zafir",
     "url": "https://github.com/Cjbuilds"
   },
-  "homepage": "https://github.com/Cjbuilds/Codex-Orchestration#readme",
-  "repository": "https://github.com/Cjbuilds/Codex-Orchestration",
+  "homepage": "https://github.com/jimnguyendev/Codex-Orchestration#readme",
+  "repository": "https://github.com/jimnguyendev/Codex-Orchestration",
   "license": "MIT",
   "keywords": [
     "codex",
@@ -21,10 +21,10 @@
   "interface": {
     "displayName": "Codex Orchestration",
     "shortDescription": "Plan, review, design, and build with multiple models",
-    "longDescription": "Bring Fable 5 and audited API models into Codex as bounded Planner, Advisor, Designer, Executor, or custom roles without changing the root model or Desktop model picker.",
+    "longDescription": "Maintained independent fork of CJ Zafir's Codex Orchestration. Bring Fable 5 and audited API models into Codex as bounded Planner, Advisor, Designer, Executor, or custom roles without changing the root model or Desktop model picker.",
     "developerName": "CJ Zafir",
     "category": "Productivity",
-    "websiteURL": "https://github.com/Cjbuilds/Codex-Orchestration",
+    "websiteURL": "https://github.com/jimnguyendev/Codex-Orchestration",
     "brandColor": "#C8A951",
     "capabilities": [
       "Multi-model workflows",

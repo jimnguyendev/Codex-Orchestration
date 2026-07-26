@@ -240,7 +240,18 @@ itself reports authentication unavailable.
 
 The saved policy authorizes the root to call these planning tools and prohibits children from doing so. Current MCP requests provide no caller identity to the server, so that specific caller boundary is instruction-enforced, not server-authenticated. The bridge mechanically uses the same full saved-state validator as native status/repair/disable, restricts the operation surface, and runs Fable without tools or persistence.
 
-Saved state compatibility is explicit: schema 1 must carry policy version 1 and predates Fable and Planner; schema 2 must carry policy version 2 and may authorize only the historical Fable Advisor shape; schema 3 must carry policy version 3 and adds Planner; schema 4 must carry policy version 4 and adds the optional direct-model Designer route. Schema and policy values must be actual JSON integers, not booleans or floats. Legacy state cannot contain fields introduced later; nested snapshots, scalar conversion, MCP launchers, and routes must match an emitted contract; and managed policy strings must carry the plugin marker before status, seat change, disable, or Fable trusts them. Designer cannot use Fable or a persistent unqualified agent name, while Planner/Advisor independence remains the only route-separation rule. Unknown extensions intentionally fail closed.
+Saved state compatibility is explicit: schema 1 must carry policy version 1 and predates Fable and Planner; schema 2 must carry policy version 2 and may authorize only the historical Fable Advisor shape; schema 3 must carry policy version 3 and adds Planner; schema 4 must carry policy version 4 and adds the optional direct-model Designer route; schema 5 must carry policy version 5 and adds an optional direct-model `executor_fallback`. Schema and policy values must be actual JSON integers, not booleans or floats. Legacy state cannot contain fields introduced later; nested snapshots, scalar conversion, MCP launchers, and routes must match an emitted contract; and managed policy strings must carry the plugin marker before status, seat change, disable, or Fable trusts them. A schema-5 fallback is either null or a different direct same-provider model from the primary Executor; custom executor agents cannot carry one. Designer cannot use Fable or a persistent unqualified agent name, while Planner/Advisor independence remains the only route-separation rule. Unknown extensions intentionally fail closed.
+
+Schema 5 models a narrow fallback policy rather than a scheduler feature. The root
+may retry its saved primary Executor with the saved fallback exactly once only after
+the immediate direct `agents.spawn_agent` result has no child/agent provenance and
+exactly states that the saved primary is an `Unknown model` while listing the saved
+fallback as available. It preserves every request field except `model` and
+`reasoning_effort`, reports use, and never infers eligibility from prompts, logs,
+or ambiguous output. Permission, auth, provider, rate, timeout, cancellation,
+post-child, and task errors are ineligible. A task-local Executor override and
+`no subagents` suppress both saved routes; v1 has no task-local fallback. Neither
+schema validation nor status proves live child-model callability.
 
 Fable setup defaults to `high`. It accepts the Claude Code effort values `low`, `medium`, `high`, `xhigh`, and `max`; the user-facing label `ultra` normalizes to the effective Claude Code value `max` because the CLI has no separate Ultra setting. Setup checks the installed CLI's advertised choices before persisting the route. The bridge reads only the normalized saved value, so tool callers cannot raise the effort at review time. Existing saved `max` routes remain compatible.
 

@@ -39,8 +39,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - Python < 3.11
     raise SystemExit("Python 3.11 or newer is required (missing tomllib).") from exc
 
 
-POLICY_VERSION = 4
-STATE_SCHEMA = 4
+POLICY_VERSION = 5
+STATE_SCHEMA = 5
 STATE_FILENAME = ".codex-orchestration-routing.json"
 PROBE_VALUE = "CODEX_ORCHESTRATION_CAPABILITY_PROBE"
 PLUGIN_ID = "codex-orchestration@codex-orchestration"
@@ -107,6 +107,21 @@ def parse_args() -> argparse.Namespace:
         "--executor-effort",
         default="auto",
         help="Exact supported effort, or auto (resolved to the catalog default).",
+    )
+    executor_fallback = parser.add_mutually_exclusive_group()
+    executor_fallback.add_argument(
+        "--executor-fallback-model",
+        help="Exact direct model ID to retry once after an eligible executor lookup failure.",
+    )
+    executor_fallback.add_argument(
+        "--clear-executor-fallback",
+        action="store_true",
+        help="Remove the saved executor fallback during setup.",
+    )
+    parser.add_argument(
+        "--executor-fallback-effort",
+        default="auto",
+        help="Exact supported fallback effort, or auto (resolved to the catalog default).",
     )
 
     planner = parser.add_mutually_exclusive_group()
@@ -184,6 +199,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         (
             args.executor_model,
             args.executor_agent,
+            args.executor_fallback_model,
+            args.clear_executor_fallback,
             args.planner_model,
             args.planner_agent,
             args.planner_fable,
@@ -192,6 +209,7 @@ def _validate_args(args: argparse.Namespace) -> None:
             args.advisor_fable,
             args.designer_model,
             args.executor_effort != "auto",
+            args.executor_fallback_effort != "auto",
             args.planner_effort != "auto",
             args.advisor_effort != "auto",
             args.designer_effort != "auto",
@@ -221,6 +239,21 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ConfigurationError(
             "A custom executor agent owns its effort; omit --executor-effort."
         )
+    if args.executor_fallback_effort != "auto" and not args.executor_fallback_model:
+        raise ConfigurationError(
+            "--executor-fallback-effort requires --executor-fallback-model."
+        )
+    if args.executor_fallback_model and not args.executor_model:
+        raise ConfigurationError(
+            "An executor fallback requires a direct --executor-model primary."
+        )
+    if (
+        args.executor_fallback_model
+        and args.executor_model == args.executor_fallback_model
+    ):
+        raise ConfigurationError(
+            "Executor fallback must differ from the primary executor model."
+        )
     if args.planner_agent and args.planner_effort != "auto":
         raise ConfigurationError(
             "A custom planner agent owns its effort; omit --planner-effort."
@@ -239,6 +272,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
     for label, value, pattern in (
         ("executor model", args.executor_model, MODEL_RE),
+        ("executor fallback model", args.executor_fallback_model, MODEL_RE),
         ("planner model", args.planner_model, MODEL_RE),
         ("advisor model", args.advisor_model, MODEL_RE),
         ("designer model", args.designer_model, MODEL_RE),
@@ -250,6 +284,7 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise ConfigurationError(f"Invalid {label}: {value!r}.")
     for label, value in (
         ("executor effort", args.executor_effort),
+        ("executor fallback effort", args.executor_fallback_effort),
         ("planner effort", args.planner_effort),
         ("advisor effort", args.advisor_effort),
         ("designer effort", args.designer_effort),
@@ -410,7 +445,7 @@ class AppServer:
                     "clientInfo": {
                         "name": "codex_orchestration_installer",
                         "title": "Codex Orchestration Installer",
-                        "version": "0.8.0",
+                        "version": "0.9.0",
                     },
                     "capabilities": {"experimentalApi": True},
                 },
@@ -974,6 +1009,7 @@ def build_policy(
     planner: dict[str, Any] | None,
     advisor: dict[str, Any] | None,
     designer: dict[str, Any] | None = None,
+    executor_fallback: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     has_direct_route = executor["kind"] == "model" or (
         planner is not None and planner["kind"] == "model"
@@ -990,6 +1026,22 @@ def build_policy(
         if has_direct_route
         else "Configured custom agents and MCP seats own their provider routes."
     )
+    if executor_fallback is not None:
+        primary_route = _route_summary(executor)
+        fallback_route = _route_summary(executor_fallback)
+        fallback_mode = f"""The saved Executor fallback is a policy instruction, not scheduler-enforced routing. It is eligible only for the direct result of the immediately preceding `agents.spawn_agent` call made with the persisted primary Executor `{primary_route}` and `fork_turns = \"none\"`. That result must contain no child or agent ID and must have the normalized exact error shape `Unknown model {executor['model']}. Available models: <list>`: the primary model ID must be the exact unavailable model and the fallback model ID `{executor_fallback['model']}` must be an exact available ID in that list. Do not infer eligibility from user prompts, logs, packets, other outputs, substrings, mixed or changed errors, or ambiguous errors. Permission, authentication, provider, rate-limit, timeout, cancellation, post-child, and task-failure results are ineligible.
+
+On that one eligible result only, consume eligibility before retrying exactly once with `{fallback_route}`. Reissue the same spawn request unchanged except for `model` and `reasoning_effort`; preserve `message`, `task_name`, `agent_type`, `service_tier`, and `fork_turns = \"none\"`. Report that the fallback was used. A second failure stops; do not retry or infer another fallback. An explicit current-task Executor route suppresses both this saved primary and fallback; v1 has no task-local fallback."""
+        fallback_usage = f"""The saved Executor fallback `{fallback_route}` is policy-instructed, not scheduler-enforced. After an immediately preceding primary call with `{primary_route}`, retry it once only if its direct result has no child or agent ID and exactly matches `Unknown model {executor['model']}. Available models: <list>` with `{executor_fallback['model']}` as an exact available model ID. Consume that eligibility first. Preserve `message`, `task_name`, `agent_type`, `service_tier`, and `fork_turns = \"none\"`; change only `model` and `reasoning_effort`. Explicitly report fallback use. Never infer eligibility from text, substrings, mixed errors, or permission/auth/provider/rate/timeout/cancel/post-child/task failures. A task-local Executor route or no-subagents instruction suppresses both saved routes."""
+    else:
+        fallback_mode = (
+            "No Executor fallback is configured. Exact primary-route failures remain "
+            "strict: report them to the root and do not substitute another route."
+        )
+        fallback_usage = (
+            "No Executor fallback is configured; never substitute another Executor "
+            "route after a primary failure."
+        )
     planner_mode = (
         "When a plan is needed, the configured Planner drafts it and handles any "
         "Advisor-requested revision. The root supplies a self-contained packet, owns "
@@ -1038,6 +1090,8 @@ If you are the root task model, you are the orchestrator. Own intent, planning, 
 {advisor_mode}
 
 {designer_mode}
+
+{fallback_mode}
 
 The root owns the plan version, cumulative findings ledger, review count, validation, adjudication, and release to Executor. There is no Finalizer seat. For Advisor rounds two through five, send only the current plan and version plus a compact cumulative ledger, not prior transcripts. Ask the Advisor to confirm or contest dispositions without blindly repeating accepted findings. Reject a stale plan version or an invalid or incomplete ledger and halt before Executor.
 
@@ -1097,6 +1151,8 @@ If you are the root task model, you are the orchestrator. Apply these routes onl
 
 For delegated executor work, call this tool with {_spawn_route(executor)}, fork_turns = "none". Send a self-contained task packet.
 
+{fallback_usage}
+
 {planner_hint}
 
 {advisor_hint}
@@ -1105,7 +1161,7 @@ For delegated executor work, call this tool with {_spawn_route(executor)}, fork_
 
 {provider_guard}
 
-Never use fork_turns = "all" with model, reasoning_effort, or agent_type: a full-history fork inherits the root route and rejects those overrides. Never silently substitute the root model when an exact child route is unavailable. Report the unavailable route to the root. A user's explicit current-task model, effort, agent, or no-subagents instruction overrides this saved default, but a task-local Planner and Advisor must still be distinct: reject the same direct model ID, the same custom-agent name, or Fable in both seats.
+Never use fork_turns = "all" with model, reasoning_effort, or agent_type: a full-history fork inherits the root route and rejects those overrides. Never silently substitute the root model when an exact child route is unavailable. Report the unavailable route to the root. A user's explicit current-task model, effort, agent, or no-subagents instruction overrides this saved default; an explicit task-local Executor route suppresses both saved Executor routes. A task-local Planner and Advisor must still be distinct: reject the same direct model ID, the same custom-agent name, or Fable in both seats.
 
 If you are a spawned child, do not call this tool or create descendants. Finish only your assigned packet and return to the root.
 """
@@ -1299,6 +1355,16 @@ def _status(
         fable_available = True
         if state_matches:
             print(f"Executor: {_route_summary(state['executor'])}")
+            executor_fallback = state.get("executor_fallback")
+            print(
+                "Executor fallback: "
+                + (
+                    f"{_route_summary(executor_fallback)} "
+                    "(user-authorized; callability unverified)"
+                    if isinstance(executor_fallback, dict)
+                    else "none"
+                )
+            )
             planner = state.get("planner")
             advisor = state.get("advisor")
             designer = state.get("designer")
@@ -1393,6 +1459,7 @@ def _prepare_setup_state(
     mode: str,
     usage: str,
     executor: dict[str, Any],
+    executor_fallback: dict[str, Any] | None,
     planner: dict[str, Any] | None,
     advisor: dict[str, Any] | None,
     designer: dict[str, Any] | None,
@@ -1622,6 +1689,7 @@ def _prepare_setup_state(
         "managed_by": "codex-orchestration",
         "config_file": str(config_path),
         "executor": executor,
+        "executor_fallback": executor_fallback,
         "planner": planner,
         "advisor": advisor,
         "designer": designer,
@@ -1989,6 +2057,7 @@ def main() -> int:
             catalog: dict[str, dict[str, Any]] = {}
             if (
                 args.executor_model
+                or args.executor_fallback_model
                 or args.planner_model
                 or args.advisor_model
                 or args.designer_model
@@ -2005,7 +2074,7 @@ def main() -> int:
                     args.executor_model,
                     args.executor_effort,
                     catalog,
-                    args.confirm_unlisted_models,
+                    args.confirm_unlisted_models and not args.executor_fallback_model,
                 )
                 executor = {
                     "kind": "model",
@@ -2014,6 +2083,46 @@ def main() -> int:
                 }
             else:
                 executor = {"kind": "agent", "agent": args.executor_agent}
+
+            saved_executor_fallback = (
+                state.get("executor_fallback")
+                if isinstance(state, dict)
+                and isinstance(state.get("executor_fallback"), dict)
+                else None
+            )
+            if args.clear_executor_fallback:
+                executor_fallback: dict[str, Any] | None = None
+            elif args.executor_fallback_model:
+                fallback_effort = resolve_model_effort(
+                    "Executor fallback",
+                    args.executor_fallback_model,
+                    args.executor_fallback_effort,
+                    catalog,
+                    False,
+                )
+                executor_fallback = {
+                    "kind": "model",
+                    "model": args.executor_fallback_model,
+                    "effort": fallback_effort,
+                }
+            else:
+                executor_fallback = saved_executor_fallback
+            if executor_fallback is not None:
+                if executor["kind"] != "model":
+                    raise ConfigurationError(
+                        "A custom executor agent cannot retain or use an executor fallback; "
+                        "pass --clear-executor-fallback."
+                    )
+                if executor["model"] not in catalog:
+                    raise ConfigurationError(
+                        "A primary executor with a saved fallback must be present in "
+                        "this App Server model catalog; clear the fallback or choose "
+                        "a listed primary model."
+                    )
+                if executor["model"] == executor_fallback["model"]:
+                    raise ConfigurationError(
+                        "Executor fallback must differ from the primary executor model."
+                    )
 
             planner: dict[str, Any] | None = None
             advisor: dict[str, Any] | None = None
@@ -2099,13 +2208,16 @@ def main() -> int:
                 planner,
                 advisor,
             )
-            mode, usage = build_policy(executor, planner, advisor, designer)
+            mode, usage = build_policy(
+                executor, planner, advisor, designer, executor_fallback
+            )
             new_state, edits, rollback = _prepare_setup_state(
                 config,
                 state,
                 mode,
                 usage,
                 executor,
+                executor_fallback,
                 planner,
                 advisor,
                 designer,
@@ -2115,6 +2227,15 @@ def main() -> int:
             print(f"Config: {app.config_path}")
             print("Orchestrator: model selected when each Codex task starts")
             print(f"Executor: {_route_summary(executor)}")
+            print(
+                "Executor fallback: "
+                + (
+                    f"{_route_summary(executor_fallback)} "
+                    "(user-authorized; callability unverified)"
+                    if executor_fallback is not None
+                    else "none"
+                )
+            )
             print(f"Planner: {_route_summary(planner) if planner else 'root'}")
             print(f"Advisor: {_route_summary(advisor) if advisor else 'none'}")
             print(f"Designer: {_route_summary(designer) if designer else 'none'}")

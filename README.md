@@ -2,6 +2,12 @@
 
 Bring models like Claude Fable 5 into Codex, give each model a role, and let Codex coordinate the work.
 
+This repository is an independently maintained fork of
+[CJ Zafir's original Codex Orchestration](https://github.com/Cjbuilds/Codex-Orchestration).
+It preserves the original author attribution and MIT license; its canonical install,
+updates, issue handling, and releases are owned by
+[`jimnguyendev/Codex-Orchestration`](https://github.com/jimnguyendev/Codex-Orchestration).
+
 ## What is it?
 
 Codex Orchestration adds four simple roles to a Codex task:
@@ -64,7 +70,7 @@ Results depend on the models, task, context, retries, and available parallel wor
 ## Install
 
 ```bash
-codex plugin marketplace add Cjbuilds/Codex-Orchestration
+codex plugin marketplace add jimnguyendev/Codex-Orchestration
 codex plugin add codex-orchestration@codex-orchestration
 ```
 
@@ -277,11 +283,12 @@ or newer** adds `--update`, routing repair, and Designer; version **0.7.1 or new
 lets the natural `Designer: Kimi K3` label enter the External Model lifecycle;
 version **0.7.2 or newer** uses the concise per-role activation confirmation;
 version **0.8.0 or newer** uses sealed direct CLI invocation for READY External
-Model roles.
+Model roles; version **0.9.0 or newer** adds the saved direct Executor fallback
+contract described in the plugin skill.
 Confirm with
 `codex plugin list --json`, then restart Codex Desktop and start a new task.
 
-If the version stays old or `marketplaceSource.sourceType` is `local`, Codex is pointed at a local checkout rather than the GitHub marketplace. Run `/codex-orchestration disable` first if a saved policy is active, then remove the plugin and that marketplace registration, add `Cjbuilds/Codex-Orchestration` again, and reinstall. This does not delete the local source checkout.
+If the version stays old or `marketplaceSource.sourceType` is `local`, Codex is pointed at a local checkout rather than this fork's GitHub marketplace. Run `/codex-orchestration disable` first if a saved policy is active, then remove the plugin and that marketplace registration, add `jimnguyendev/Codex-Orchestration` again, and reinstall. This does not delete the local source checkout.
 
 Before downgrading to a version older than the currently saved routing schema, run `/codex-orchestration disable` with the current version first.
 

@@ -440,6 +440,134 @@ class NativeRoutingTests(unittest.TestCase):
         self.assertIn("review_plan", fable_advisor_usage)
         self.assertIn('fork_turns = "none"', fable_advisor_usage)
 
+    def test_executor_fallback_policy_is_exact_and_policy_instructed(self) -> None:
+        executor = {"kind": "model", "model": "gpt-5.6-luna", "effort": "xhigh"}
+        fallback = {"kind": "model", "model": "gpt-5.6-terra", "effort": "high"}
+        mode, usage = NATIVE.build_policy(executor, None, None, None, fallback)
+
+        combined = mode + usage
+        self.assertIn("policy instruction, not scheduler-enforced", combined)
+        self.assertIn("immediately preceding `agents.spawn_agent`", combined)
+        self.assertIn("Unknown model gpt-5.6-luna. Available models: <list>", combined)
+        self.assertIn("no child or agent ID", combined)
+        self.assertIn("exact available ID", combined)
+        self.assertIn("Preserve `message`, `task_name`, `agent_type`, `service_tier`", combined)
+        self.assertIn("change only `model` and `reasoning_effort`", combined)
+        self.assertIn("Consume that eligibility first", combined)
+        self.assertIn("second failure stops", combined)
+        self.assertIn("Permission, authentication, provider, rate-limit, timeout", combined)
+        self.assertIn("task-local Executor route suppresses both", combined)
+        self.assertIn("no-subagents instruction suppresses both", combined)
+
+    def test_executor_fallback_set_preserve_clear_and_rejects_collisions(self) -> None:
+        exclusive = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-fallback-model",
+            "gpt-5.6-terra",
+            "--clear-executor-fallback",
+            check=False,
+        )
+        self.assertEqual(exclusive.returncode, 2)
+        self.assertIn("not allowed with argument", exclusive.stderr)
+        effort_without_model = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-fallback-effort",
+            "high",
+            check=False,
+        )
+        self.assertEqual(effort_without_model.returncode, 2)
+        self.assertIn("requires --executor-fallback-model", effort_without_model.stderr)
+        agent_with_fallback = self.run_script(
+            "--executor-agent",
+            "executor_agent",
+            "--executor-fallback-model",
+            "gpt-5.6-terra",
+            check=False,
+        )
+        self.assertEqual(agent_with_fallback.returncode, 2)
+        self.assertIn("requires a direct", agent_with_fallback.stderr)
+        unlisted_fallback = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-fallback-model",
+            "not-in-catalog",
+            "--executor-fallback-effort",
+            "high",
+            "--confirm-unlisted-models",
+            check=False,
+        )
+        self.assertEqual(unlisted_fallback.returncode, 2)
+        self.assertIn("not in this App Server model catalog", unlisted_fallback.stderr)
+
+        applied = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-effort",
+            "xhigh",
+            "--executor-fallback-model",
+            "gpt-5.6-terra",
+            "--executor-fallback-effort",
+            "high",
+            "--apply",
+        )
+        self.assertIn("Executor fallback: gpt-5.6-terra@high", applied.stdout)
+        state_path = self.home / NATIVE.STATE_FILENAME
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["schema"], 5)
+        self.assertEqual(state["executor_fallback"]["model"], "gpt-5.6-terra")
+        status = self.run_script("--status")
+        self.assertIn(
+            "Executor fallback: gpt-5.6-terra@high (user-authorized; callability unverified)",
+            status.stdout,
+        )
+
+        self.run_script(
+            "--executor-model", "gpt-5.6-sol", "--executor-effort", "high", "--apply"
+        )
+        self.assertEqual(
+            json.loads(state_path.read_text(encoding="utf-8"))["executor_fallback"]["model"],
+            "gpt-5.6-terra",
+        )
+        before_invalid = state_path.read_bytes()
+        before_invalid_config = self.read_fake_config()
+        collision = self.run_script(
+            "--executor-model", "gpt-5.6-terra", "--executor-effort", "high", "--apply", check=False
+        )
+        self.assertEqual(collision.returncode, 2)
+        self.assertIn("fallback must differ", collision.stderr)
+        self.assertEqual(state_path.read_bytes(), before_invalid)
+        self.assertEqual(self.read_fake_config(), before_invalid_config)
+        agent = self.run_script(
+            "--executor-agent", "executor_agent", "--apply", check=False
+        )
+        self.assertEqual(agent.returncode, 2)
+        self.assertIn("cannot retain or use", agent.stderr)
+        self.assertEqual(state_path.read_bytes(), before_invalid)
+        self.assertEqual(self.read_fake_config(), before_invalid_config)
+        unlisted_primary = self.run_script(
+            "--executor-model",
+            "not-in-catalog",
+            "--executor-effort",
+            "high",
+            "--confirm-unlisted-models",
+            "--apply",
+            check=False,
+        )
+        self.assertEqual(unlisted_primary.returncode, 2)
+        self.assertIn("with a saved fallback must be present", unlisted_primary.stderr)
+        self.assertEqual(state_path.read_bytes(), before_invalid)
+        self.assertEqual(self.read_fake_config(), before_invalid_config)
+
+        cleared = self.run_script(
+            "--executor-model", "gpt-5.6-sol", "--clear-executor-fallback", "--apply"
+        )
+        self.assertIn("Executor fallback: none", cleared.stdout)
+        self.assertIsNone(
+            json.loads(state_path.read_text(encoding="utf-8"))["executor_fallback"]
+        )
+
     def test_planner_argument_validation(self) -> None:
         exclusive = self.run_script(
             "--executor-model",
@@ -592,8 +720,8 @@ class NativeRoutingTests(unittest.TestCase):
         state = json.loads(
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
         )
-        self.assertEqual(state["schema"], 4)
-        self.assertEqual(state["policy_version"], 4)
+        self.assertEqual(state["schema"], 5)
+        self.assertEqual(state["policy_version"], 5)
         self.assertEqual(state["planner"]["effort"], "xhigh")
         self.assertEqual(state["designer"]["effort"], "medium")
 
@@ -602,8 +730,8 @@ class NativeRoutingTests(unittest.TestCase):
         self.assertIn("Designer: gpt-5.6-luna@medium", status.stdout)
         self.assertEqual(status.returncode, 0)
 
-    def test_legacy_state_schemas_upgrade_to_four_without_losing_restore(self) -> None:
-        for legacy_schema in (1, 2, 3):
+    def test_legacy_state_schemas_upgrade_to_five_without_losing_restore(self) -> None:
+        for legacy_schema in (1, 2, 3, 4):
             with self.subTest(schema=legacy_schema):
                 setup_arguments = ["--executor-model", "gpt-5.6-luna"]
                 if legacy_schema == 2:
@@ -617,7 +745,9 @@ class NativeRoutingTests(unittest.TestCase):
                 legacy["policy_version"] = legacy_schema
                 if legacy_schema < 3:
                     legacy.pop("planner", None)
-                legacy.pop("designer", None)
+                if legacy_schema < 4:
+                    legacy.pop("designer", None)
+                legacy.pop("executor_fallback", None)
                 legacy["managed"]["mode"] = (
                     f"{NATIVE.MANAGED_MARKER}\nlegacy schema {legacy_schema} mode"
                 )
@@ -644,8 +774,8 @@ class NativeRoutingTests(unittest.TestCase):
                     "--apply",
                 )
                 upgraded = json.loads(state_path.read_text(encoding="utf-8"))
-                self.assertEqual(upgraded["schema"], 4)
-                self.assertEqual(upgraded["policy_version"], 4)
+                self.assertEqual(upgraded["schema"], 5)
+                self.assertEqual(upgraded["policy_version"], 5)
                 self.assertEqual(upgraded["previous"], original_previous)
                 self.assertEqual(upgraded["planner"]["model"], "gpt-5.6-sol")
                 self.assertEqual(upgraded["designer"]["model"], "gpt-5.6-luna")
@@ -664,7 +794,7 @@ class NativeRoutingTests(unittest.TestCase):
         state_path = self.home / NATIVE.STATE_FILENAME
         current = json.loads(state_path.read_text(encoding="utf-8"))
 
-        for schema, wrong_policy in ((1, 2), (2, 3), (3, 4), (4, 1), (4, True)):
+        for schema, wrong_policy in ((1, 2), (2, 3), (3, 4), (4, 5), (5, 1), (5, True)):
             with self.subTest(schema=schema, policy=wrong_policy):
                 state = json.loads(json.dumps(current))
                 state["schema"] = schema
@@ -673,6 +803,8 @@ class NativeRoutingTests(unittest.TestCase):
                     state.pop("planner")
                 if schema < 4:
                     state.pop("designer")
+                if schema < 5:
+                    state.pop("executor_fallback")
                 state_path.write_text(json.dumps(state), encoding="utf-8")
 
                 status = self.run_script("--status", check=False)

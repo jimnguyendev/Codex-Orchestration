@@ -177,6 +177,22 @@ Executor — GPT-5.6 Sol high: Activated
         self.assertIn("Do not add `enabled = true`", SKILL)
         self.assertIn('ROUTING_TOOL_NAMESPACE = "agents"', ROUTING_STATE)
 
+    def test_saved_executor_fallback_contract_is_narrow_and_explicit(self) -> None:
+        self.assertIn("## Saved Executor fallback (v1)", SKILL)
+        self.assertIn("--executor-fallback-model", SKILL)
+        self.assertIn("--executor-fallback-effort", SKILL)
+        self.assertIn("--clear-executor-fallback", SKILL)
+        self.assertIn("preserves the saved fallback", SKILL)
+        self.assertIn("v1 deliberately has no task-local fallback", SKILL)
+        self.assertIn("exactly normalizes to `Unknown model", SKILL)
+        self.assertIn("no child or agent provenance", SKILL)
+        self.assertIn("only `model` and `reasoning_effort`", SKILL)
+        self.assertIn("Report that fallback use explicitly", SKILL)
+        self.assertIn("not an engine scheduler feature", SKILL)
+        self.assertIn("schema 5 must carry policy version 5", REFERENCE)
+        self.assertIn("`executor_fallback`", REFERENCE)
+        self.assertIn("v1 has no task-local fallback", REFERENCE)
+
     def test_native_config_uses_codex_app_server(self) -> None:
         self.assertIn("Codex App Server's `config/read`", SKILL)
         self.assertIn("`config/batchWrite`", SKILL)

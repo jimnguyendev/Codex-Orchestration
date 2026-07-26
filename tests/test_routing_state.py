@@ -65,10 +65,16 @@ def genuine_state(schema: int) -> dict[str, object]:
         state["advisor"] = fable_route()
     if schema >= 3:
         state["planner"] = fable_route()
-    if schema == 4:
+    if schema >= 4:
         state["designer"] = {
             "kind": "model",
             "model": "gpt-designer",
+            "effort": "high",
+        }
+    if schema >= 5:
+        state["executor_fallback"] = {
+            "kind": "model",
+            "model": "gpt-5.6-terra",
             "effort": "high",
         }
     if schema >= 2:
@@ -84,8 +90,8 @@ def genuine_state(schema: int) -> dict[str, object]:
 
 
 class RoutingStateTests(unittest.TestCase):
-    def test_genuine_schemas_one_through_four_are_accepted(self) -> None:
-        for schema in (1, 2, 3, 4):
+    def test_genuine_schemas_one_through_five_are_accepted(self) -> None:
+        for schema in (1, 2, 3, 4, 5):
             with self.subTest(schema=schema):
                 state = genuine_state(schema)
                 self.assertIs(STATE.validate_routing_state(state), state)
@@ -106,7 +112,7 @@ class RoutingStateTests(unittest.TestCase):
         self.assertIs(STATE.validate_routing_state(state), state)
 
     def test_full_negative_invariant_matrix_fails_closed(self) -> None:
-        baseline = genuine_state(4)
+        baseline = genuine_state(5)
 
         def schema(value: object):
             return lambda state: state.__setitem__("schema", value)
@@ -115,8 +121,8 @@ class RoutingStateTests(unittest.TestCase):
             return lambda state: state.__setitem__("policy_version", value)
 
         mutations = [
-            *( (f"schema {value!r}", schema(value)) for value in (True, 1.0, "4", None, 0, 5) ),
-            *( (f"policy {value!r}", policy(value)) for value in (True, 4.0, "4", None, 0, 5, 3) ),
+            *( (f"schema {value!r}", schema(value)) for value in (True, 1.0, "5", None, 0, 6) ),
+            *( (f"policy {value!r}", policy(value)) for value in (True, 5.0, "5", None, 0, 6, 4) ),
             ("missing top key", lambda state: state.pop("managed_by")),
             ("extra top key", lambda state: state.__setitem__("future", True)),
             ("wrong owner", lambda state: state.__setitem__("managed_by", "other")),
@@ -139,6 +145,15 @@ class RoutingStateTests(unittest.TestCase):
             ("snapshot present missing value", lambda state: state["previous"].update(mode={"known": True, "present": True})),
             ("snapshot wrong value type", lambda state: state["previous"].update(metadata={"known": True, "present": True, "value": 1})),
             ("executor null", lambda state: state.__setitem__("executor", None)),
+            ("missing executor fallback", lambda state: state.pop("executor_fallback")),
+            ("executor fallback string", lambda state: state.__setitem__("executor_fallback", "gpt-5.6-terra")),
+            ("executor fallback list", lambda state: state.__setitem__("executor_fallback", [])),
+            ("executor fallback missing effort", lambda state: state["executor_fallback"].pop("effort")),
+            ("executor fallback agent", lambda state: state.__setitem__("executor_fallback", {"kind": "agent", "agent": "fallback_agent"})),
+            ("executor fallback Fable", lambda state: state.__setitem__("executor_fallback", fable_route())),
+            ("executor fallback extra key", lambda state: state["executor_fallback"].update(provider="other")),
+            ("executor fallback same model", lambda state: state["executor_fallback"].update(model=state["executor"]["model"])),
+            ("agent executor with fallback", lambda state: state.__setitem__("executor", {"kind": "agent", "agent": "executor_agent"})),
             ("executor Fable", lambda state: state.__setitem__("executor", fable_route())),
             ("designer Fable", lambda state: state.__setitem__("designer", fable_route())),
             ("designer agent", lambda state: state.__setitem__("designer", {"kind": "agent", "agent": "designer_agent"})),
@@ -202,10 +217,19 @@ class RoutingStateTests(unittest.TestCase):
             legacy = genuine_state(schema)
             legacy["designer"] = None
             scenarios.append((f"schema {schema} designer", legacy))
+        for schema in (1, 2, 3, 4):
+            legacy = genuine_state(schema)
+            legacy["executor_fallback"] = None
+            scenarios.append((f"schema {schema} executor fallback", legacy))
 
         for label, state in scenarios:
             with self.subTest(label=label), self.assertRaises(STATE.RoutingStateError):
                 STATE.validate_routing_state(state)
+
+    def test_schema_five_accepts_an_explicit_null_fallback(self) -> None:
+        state = genuine_state(5)
+        state["executor_fallback"] = None
+        self.assertIs(STATE.validate_routing_state(state), state)
 
 
 if __name__ == "__main__":
