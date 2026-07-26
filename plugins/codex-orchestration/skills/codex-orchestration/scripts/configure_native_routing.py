@@ -31,6 +31,11 @@ try:  # The installer is supported on Unix desktop hosts.
 except ImportError:  # pragma: no cover - defensive package import on non-Unix hosts
     fcntl = None  # type: ignore[assignment]
 
+try:  # Windows uses its standard byte-range locking API.
+    import msvcrt
+except ImportError:  # pragma: no cover - expected on non-Windows hosts
+    msvcrt = None  # type: ignore[assignment]
+
 from routing_state import (
     FABLE_EFFORTS,
     FABLE_MODEL,
@@ -737,15 +742,38 @@ def _state_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.parent / f".{path.name}.lock"
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    locked = False
     try:
-        if fcntl is None:
-            raise ConfigurationError("Routing-state compare-and-swap requires Unix locks.")
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        elif msvcrt is not None:
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+        else:  # pragma: no cover - supported desktop platforms expose one backend
+            raise ConfigurationError(
+                "Routing-state compare-and-swap has no supported file-lock backend."
+            )
+        locked = True
         yield
     finally:
-        if fcntl is not None:
+        if locked and fcntl is not None:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
+        elif locked and msvcrt is not None:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
         os.close(descriptor)
+
+
+def _require_state_lock_backend() -> None:
+    """Fail before config mutation on an unsupported host."""
+
+    if fcntl is None and msvcrt is None:
+        raise ConfigurationError(
+            "Routing-state compare-and-swap has no supported file-lock backend."
+        )
 
 
 def _write_state_cas(
@@ -2133,6 +2161,7 @@ def _disable(
     if not apply:
         print("Dry run only. Re-run with --disable --apply after reviewing this preview.")
         return 0
+    _require_state_lock_backend()
     result = _batch_write(app, edits, version, reload_user_config=True)
     if result.get("status") not in {"ok", "okOverridden"}:
         raise ConfigurationError(f"Unexpected config write status: {result.get('status')!r}")
@@ -2439,6 +2468,7 @@ def main() -> int:
                 print("Dry run only. Re-run with --apply after reviewing this preview.")
                 return 0
 
+            _require_state_lock_backend()
             result = _batch_write(app, edits, version, reload_user_config=True)
             if result.get("status") == "okOverridden":
                 try:

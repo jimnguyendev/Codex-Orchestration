@@ -1767,6 +1767,57 @@ class NativeRoutingTests(unittest.TestCase):
             NATIVE._write_state(state_path, state)
         self.assertEqual(json.loads(state_path.read_text(encoding="utf-8")), state)
 
+    def test_state_cas_uses_windows_lock_backend_without_fcntl(self) -> None:
+        self.run_script("--executor-model", "gpt-5.6-luna", "--apply")
+        state_path = self.home / NATIVE.STATE_FILENAME
+        state, revision = NATIVE._read_state_with_revision(state_path)
+        self.assertIsNotNone(state)
+        self.assertIsNotNone(revision)
+
+        class FakeMsvcrt:
+            LK_LOCK = 1
+            LK_UNLCK = 2
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, int]] = []
+
+            def locking(self, descriptor: int, mode: int, size: int) -> None:
+                self.calls.append((mode, size))
+
+        windows_lock = FakeMsvcrt()
+        with (
+            mock.patch.object(NATIVE, "fcntl", None),
+            mock.patch.object(NATIVE, "msvcrt", windows_lock),
+        ):
+            written_revision = NATIVE._write_state_cas(
+                state_path,
+                state,
+                revision,
+            )
+            NATIVE._remove_state_cas(state_path, written_revision)
+
+        self.assertFalse(state_path.exists())
+        self.assertEqual(
+            windows_lock.calls,
+            [
+                (windows_lock.LK_LOCK, 1),
+                (windows_lock.LK_UNLCK, 1),
+                (windows_lock.LK_LOCK, 1),
+                (windows_lock.LK_UNLCK, 1),
+            ],
+        )
+
+    def test_missing_state_lock_backend_fails_before_config_write(self) -> None:
+        with (
+            mock.patch.object(NATIVE, "fcntl", None),
+            mock.patch.object(NATIVE, "msvcrt", None),
+        ):
+            with self.assertRaisesRegex(
+                NATIVE.ConfigurationError,
+                "no supported file-lock backend",
+            ):
+                NATIVE._require_state_lock_backend()
+
     def test_effective_project_override_is_reported_and_blocks_setup(self) -> None:
         self.run_script(
             "--executor-model",
