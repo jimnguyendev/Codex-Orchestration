@@ -16,6 +16,8 @@ MANAGED_MARKER = "[codex-orchestration managed-policy v1]"
 ROUTING_TOOL_NAMESPACE = "agents"
 FABLE_MODEL = "claude-fable-5"
 FABLE_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+OPUS_MODEL = "claude-opus-5"
+OPUS_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 FABLE_SERVERS = frozenset(
     {
         "fable-advisor-python3",
@@ -23,9 +25,10 @@ FABLE_SERVERS = frozenset(
         "fable-advisor-py",
     }
 )
-ROUTE_BINDING_PREFIX = "Routing-state binding (schema 5): "
+ROUTE_BINDING_PREFIX = "Routing-state binding (schema 6): "
+LEGACY_ROUTE_BINDING_PREFIX = "Routing-state binding (schema 5): "
 
-_SCHEMA_POLICY_PAIRS = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
+_SCHEMA_POLICY_PAIRS = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,199}$")
 _AGENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EFFORT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -51,8 +54,10 @@ class RoutingStateError(ValueError):
     """The persisted value is not one exact supported routing-state contract."""
 
 
-def routing_state_binding(state: dict[str, Any]) -> str:
-    """Return the canonical schema-5 route binding embedded in both hints.
+def routing_state_binding(
+    state: dict[str, Any], *, schema: int | None = None
+) -> str:
+    """Return the canonical route binding embedded in both managed hints.
 
     The hint text is the executable policy surface.  Binding every persisted
     route to an exact, canonical line in that text makes route-only state-file
@@ -66,7 +71,13 @@ def routing_state_binding(state: dict[str, Any]) -> str:
         "executor_fallback": state["executor_fallback"],
         "planner": state["planner"],
     }
-    return ROUTE_BINDING_PREFIX + json.dumps(
+    effective_schema = schema if schema is not None else state.get("schema", 6)
+    prefix = (
+        LEGACY_ROUTE_BINDING_PREFIX
+        if effective_schema == 5
+        else ROUTE_BINDING_PREFIX
+    )
+    return prefix + json.dumps(
         routes,
         ensure_ascii=True,
         sort_keys=True,
@@ -77,7 +88,7 @@ def routing_state_binding(state: dict[str, Any]) -> str:
 def _has_exact_route_binding(value: Any, state: dict[str, Any]) -> bool:
     if type(value) is not str:
         return False
-    binding = routing_state_binding(state)
+    binding = routing_state_binding(state, schema=state["schema"])
     return sum(line == binding for line in value.splitlines()) == 1
 
 
@@ -136,6 +147,10 @@ def _validate_route(route: Any, *, seat: str, schema: int) -> str:
             f"{seat} model route has an invalid model",
         )
         _require(
+            route["model"] not in {FABLE_MODEL, OPUS_MODEL},
+            f"{seat} model route uses a reserved Claude model",
+        )
+        _require(
             type(route["effort"]) is str
             and _EFFORT_RE.fullmatch(route["effort"]) is not None,
             f"{seat} model route has an invalid effort",
@@ -167,6 +182,24 @@ def _validate_route(route: Any, *, seat: str, schema: int) -> str:
             type(route["server"]) is str and route["server"] in FABLE_SERVERS,
             "Fable server is unsupported",
         )
+    elif kind == "claude_subscription":
+        _require(
+            seat in {"planner", "advisor"} and schema >= 6,
+            f"{seat} cannot use a Claude subscription route in schema {schema}",
+        )
+        _require(
+            set(route) == {"kind", "model", "effort", "server"},
+            f"{seat} Claude subscription route has the wrong shape",
+        )
+        _require(route["model"] == OPUS_MODEL, "Claude subscription model is not pinned")
+        _require(
+            type(route["effort"]) is str and route["effort"] in OPUS_EFFORTS,
+            "Claude Opus 5 effort is unsupported",
+        )
+        _require(
+            type(route["server"]) is str and route["server"] in FABLE_SERVERS,
+            "Claude subscription server is unsupported",
+        )
     else:
         raise RoutingStateError(f"{seat} route kind is unsupported")
     return kind
@@ -177,13 +210,16 @@ def _validate_route_separation(planner: Any, advisor: Any) -> None:
         return
     planner_kind = planner["kind"]
     advisor_kind = advisor["kind"]
+    subscription_kinds = {"fable", "claude_subscription"}
     same_route = (
         planner_kind == advisor_kind == "model"
         and planner["model"] == advisor["model"]
     ) or (
         planner_kind == advisor_kind == "agent"
         and planner["agent"] == advisor["agent"]
-    ) or planner_kind == advisor_kind == "fable"
+    ) or (
+        planner_kind in subscription_kinds and advisor_kind in subscription_kinds
+    )
     _require(not same_route, "Planner and Advisor routes are not independent")
 
 
@@ -235,7 +271,7 @@ def _validate_scalar_conversion(state: dict[str, Any], managed: dict[str, Any]) 
 
 
 def validate_routing_state(value: Any) -> dict[str, Any]:
-    """Validate and return one exact, complete persisted schema 1 through 5.
+    """Validate and return one exact, complete persisted schema 1 through 6.
 
     Unknown keys and future extensions are rejected intentionally. Callers must
     perform their own secure file read and any caller-specific path/seat checks.
@@ -336,12 +372,16 @@ def validate_routing_state(value: Any) -> dict[str, Any]:
     ):
         _validate_snapshot(previous[key], expected_type)
 
-    fable_routes = [
+    subscription_routes = [
         route
         for route in (planner, advisor)
-        if type(route) is dict and route.get("kind") == "fable"
+        if type(route) is dict
+        and route.get("kind") in {"fable", "claude_subscription"}
     ]
-    _require(len(fable_routes) <= 1, "more than one Fable seat is configured")
+    _require(
+        len(subscription_routes) <= 1,
+        "more than one Claude subscription seat is configured",
+    )
     if managed_has_mcp:
         managed_mcp = managed["mcp"]
         previous_mcp = previous["mcp"]
@@ -362,23 +402,26 @@ def validate_routing_state(value: Any) -> dict[str, Any]:
     else:
         true_servers = []
 
-    if fable_routes:
-        selected_server = fable_routes[0]["server"]
+    if subscription_routes:
+        selected_server = subscription_routes[0]["server"]
         _require(
             true_servers == [selected_server],
-            "MCP state must enable exactly the selected Fable launcher",
+            "MCP state must enable exactly the selected Claude launcher",
         )
     else:
-        _require(not true_servers, "MCP state enables a launcher without a Fable seat")
+        _require(
+            not true_servers,
+            "MCP state enables a launcher without a Claude subscription seat",
+        )
 
     _validate_scalar_conversion(value, managed)
     if schema >= 5:
         _require(
             _has_exact_route_binding(managed["mode"], value),
-            "managed mode does not bind the saved schema-5 routes",
+            f"managed mode does not bind the saved schema-{schema} routes",
         )
         _require(
             _has_exact_route_binding(managed["usage"], value),
-            "managed usage does not bind the saved schema-5 routes",
+            f"managed usage does not bind the saved schema-{schema} routes",
         )
     return value

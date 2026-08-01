@@ -26,16 +26,26 @@ NATIVE_SCRIPT = (
 ROUTING_STATE = (SKILL_ROOT / "scripts" / "routing_state.py").read_text(
     encoding="utf-8"
 )
+RELEASE = (REPO_ROOT / "RELEASE.md").read_text(encoding="utf-8")
 
 
 class SkillContractTests(unittest.TestCase):
+    def test_opus_is_a_sealed_subscription_planner_or_advisor(self) -> None:
+        self.assertIn("advisor: Claude Opus 5 XHigh", SKILL)
+        self.assertIn("--advisor-opus", SKILL)
+        self.assertIn("--planner-opus", SKILL)
+        self.assertIn("Claude Code 2.1.219 or newer", SKILL)
+        self.assertIn("No Opus helper identity is independently established", SKILL)
+        self.assertIn("more than one bundled Claude subscription seat", SKILL)
+
     def test_public_controls_are_simple_and_setup_is_persistent(self) -> None:
         self.assertIn("setup executor: GPT-5.6 Luna Extra High", SKILL)
         self.assertIn("setup planner: Claude Fable 5 High", SKILL)
-        self.assertIn("/codex-orchestration status", SKILL)
-        self.assertIn("/codex-orchestration repair", SKILL)
-        self.assertIn("/codex-orchestration disable", SKILL)
-        self.assertIn("/codex-orchestration --update", SKILL)
+        invocation = "$codex-orchestration:codex-orchestration"
+        self.assertIn(f"{invocation} status", SKILL)
+        self.assertIn(f"{invocation} repair", SKILL)
+        self.assertIn(f"{invocation} disable", SKILL)
+        self.assertIn(f"{invocation} --update", SKILL)
         self.assertIn("current-task override", SKILL)
         self.assertIn("no longer needs to invoke this skill", SKILL)
 
@@ -200,6 +210,8 @@ Executor — GPT-5.6 Sol high: Activated
         self.assertIn("Report that fallback use explicitly", SKILL)
         self.assertIn("not an engine scheduler feature", SKILL)
         self.assertIn("schema 5 must carry policy version 5", REFERENCE)
+        self.assertIn("schema 6 must carry policy version 6", REFERENCE)
+        self.assertIn("schema-5-or-newer fallback", REFERENCE)
         self.assertIn("`executor_fallback`", REFERENCE)
         self.assertIn("v1 has no task-local fallback", REFERENCE)
 
@@ -321,7 +333,11 @@ Executor — GPT-5.6 Sol high: Activated
         self.assertIn("All bundled variants are disabled by default", SKILL)
         self.assertIn("first-party Pro, Max, or Team account", SKILL)
         self.assertIn("never extracts a token", SKILL)
-        self.assertIn("runtime `modelUsage` to contain the pinned `claude-fable-5`", SKILL)
+        self.assertIn(
+            "reviewed Fable primary identity (`claude-fable-5` or "
+            "`claude-opus-4-8`)",
+            SKILL,
+        )
         self.assertIn("explicit exact helper allowlist", SKILL)
         self.assertIn("unknown additional or missing primary model", SKILL)
         self.assertIn("`create_plan`", SKILL)
@@ -343,7 +359,8 @@ Executor — GPT-5.6 Sol high: Activated
         self.assertIn("report only to the root", SKILL)
         self.assertIn("contact Executors", SKILL)
         self.assertIn("it never counts as approval", SKILL)
-        self.assertIn("Never exceed five total Advisor reviews", SKILL)
+        self.assertIn("Never exceed eight total Advisor reviews", SKILL)
+        self.assertIn("If review eight still returns `PLAN_REVISE`", SKILL)
         self.assertIn("NOT_ADVISOR_APPROVED", SKILL)
         self.assertNotIn("at most one confirmation pass", SKILL)
 
@@ -357,6 +374,41 @@ Executor — GPT-5.6 Sol high: Activated
         self.assertIn("explicitly made that seat best-effort", SKILL)
         self.assertIn("An unavailable Executor may leave work with the root", SKILL)
         self.assertIn("Planner and Advisor never contact one another directly", SKILL)
+
+    def test_active_advisor_guidance_uses_the_eight_review_bound(self) -> None:
+        active_guidance = {
+            "README.md": README,
+            "SKILL.md": SKILL,
+            "providers-and-models.md": REFERENCE,
+            "RELEASE.md": RELEASE,
+            "configure_native_routing.py": NATIVE_SCRIPT,
+        }
+        stale_limit_word = "fi" + "ve"
+        stale_phrases = (
+            f"{stale_limit_word}-round bounded approval loop",
+            f"at most {stale_limit_word} Advisor reviews",
+            f"{stale_limit_word} total Advisor reviews",
+            f"Review {stale_limit_word} without approval",
+            f"review {stale_limit_word} still returns",
+            f"{stale_limit_word}-review approval bound",
+            f"{stale_limit_word}-review budget",
+            f"round-{stale_limit_word} PLAN_REVISE",
+            f"rounds two through {stale_limit_word}",
+        )
+        for path, content in active_guidance.items():
+            with self.subTest(path=path):
+                for phrase in stale_phrases:
+                    self.assertNotIn(phrase, content)
+
+        self.assertIn("safety limit of eight reviews", README)
+        self.assertIn("eight-round bounded approval loop", REFERENCE)
+        self.assertIn("at most eight Advisor reviews", REFERENCE)
+        self.assertIn("eight-review approval bound", RELEASE)
+        self.assertEqual(NATIVE_SCRIPT.count("ADVISOR_REVIEW_LIMIT ="), 1)
+        # Product/model names and unrelated concurrency facts remain five-based.
+        self.assertIn("Claude Fable 5", README)
+        self.assertIn("Claude Opus 5", RELEASE)
+        self.assertIn("five-hour", REFERENCE)
 
     def test_route_reporting_is_truthful(self) -> None:
         self.assertIn("native policy installed", SKILL)

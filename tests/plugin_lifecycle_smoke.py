@@ -32,7 +32,7 @@ PLUGIN_ID = "codex-orchestration@codex-orchestration"
 MARKETPLACE_NAME = "codex-orchestration"
 OLD_RELEASE = "a1d9c546665c3253cdcaa8fe5c0c060199a6126c"
 OLD_VERSION = "0.5.0"
-NEW_VERSION = "0.9.0"
+NEW_VERSION = "0.9.4"
 COMMAND_TIMEOUT_SECONDS = 60
 
 
@@ -533,8 +533,8 @@ def main() -> int:
                 "Designer may edit only explicitly delegated design artifacts",
                 "is Kimi available to use as Designer?",
                 "Implicit invocation is discovery, not mutation authority",
-                "/codex-orchestration repair",
-                "/codex-orchestration --update",
+                "$codex-orchestration:codex-orchestration repair",
+                "$codex-orchestration:codex-orchestration --update",
             ):
                 if expected not in installed_skill:
                     raise SmokeFailure(
@@ -611,13 +611,13 @@ def main() -> int:
             if "Executor: gpt-5.6-luna@xhigh" not in direct_status.stdout:
                 raise SmokeFailure("Direct native status lost the selected model route")
             if "Executor fallback: none" not in direct_status.stdout:
-                raise SmokeFailure("Direct native status lost the schema-5 fallback field")
+                raise SmokeFailure("Direct native status lost the schema-6 fallback field")
             if "Designer: gpt-5.6-luna@high" not in direct_status.stdout:
                 raise SmokeFailure("Direct native status lost the selected Designer route")
 
             state_path = codex_home / ".codex-orchestration-routing.json"
             installed_state = json.loads(state_path.read_text(encoding="utf-8"))
-            assert_equal(installed_state.get("schema"), 5, "native routing state schema")
+            assert_equal(installed_state.get("schema"), 6, "native routing state schema")
             assert_equal(
                 installed_state.get("executor_fallback"),
                 None,

@@ -1,20 +1,32 @@
 # Changelog
 
-## 0.9.0 — Unreleased
+## 0.9.4 — Unreleased
 
+- Merge upstream through `2c0a4b8`, including sealed Claude Opus 5 Planner or
+  Advisor routing, hardened Fable authentication and structured decisions,
+  namespaced explicit skill invocation, and the eight-review Advisor limit.
+- Preserve the fork's opt-in direct Executor fallback, route-state binding,
+  compare-and-swap rollback, and Unix/Windows state-file locking.
+- Advance new native routing state to schema/policy 6. Schema 5 remains accepted
+  as this fork's fallback-bearing compatibility contract; schema 6 combines that
+  contract with upstream Fable/Opus subscription routes.
 - Publish the independently maintained `jimnguyendev/Codex-Orchestration` fork
   identity while preserving CJ Zafir's original author attribution and MIT license.
-  Canonical marketplace installation, update validation, release, and security
-  reporting now target this fork.
-- Add an opt-in saved direct Executor fallback. A primary Luna route may retry
-  Terra exactly once only after the immediate direct `agents.spawn_agent` call
-  reports the exact `Unknown model` failure with no child-provenance evidence.
-  All ambiguous, authorization, provider, rate, timeout, cancellation,
-  post-child, and task failures remain fail-closed; a task-local Executor override
-  disables the saved fallback.
-- Advance native routing state and policy to schema 5. The saved fallback is a
-  model-visible policy instruction, not a scheduler guarantee or proof that a
-  client can currently call either route.
+- Replace the English README and add a concrete Vietnamese setup and operations
+  guide in `README-vi.md`.
+
+## 0.9.0 — 2026-07-26
+
+- Publish the independently maintained fork identity and canonical marketplace
+  at `jimnguyendev/Codex-Orchestration` while retaining original attribution.
+- Add the opt-in saved direct Executor fallback, schema-5 route binding,
+  byte-exact state compare-and-swap, rollback, and Unix/Windows file locking.
+- Accept first-party Claude Team authentication for the existing Fable route.
+
+Upstream releases 0.9.0 through 0.9.3 used the same version range for Opus,
+Fable hardening, namespaced invocation, and the eight-review limit. Those changes
+enter this fork together in 0.9.4 so different payloads are never published under
+the fork's existing 0.9.0 cache identity.
 
 ## 0.8.0 — Unreleased
 
@@ -55,8 +67,9 @@
 
 ## 0.7.0 — 2026-07-18
 
-- Add `/codex-orchestration --update`, a canonical-source-checked orchestration of
-  Codex's native plugin upgrade/install commands. It refuses disabled, local,
+- Add the `$codex-orchestration:codex-orchestration --update` skill prompt, a
+  canonical-source-checked orchestration of Codex's native plugin upgrade/install
+  commands. It refuses disabled, local,
   missing, duplicate, or unexpected sources and verifies final source, version, and
   enabled state without removing the plugin or touching routing, credentials, chats,
   or sessions.
