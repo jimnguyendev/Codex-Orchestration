@@ -522,7 +522,7 @@ class AppServer:
                     "clientInfo": {
                         "name": "codex_orchestration_installer",
                         "title": "Codex Orchestration Installer",
-                        "version": "0.10.1",
+                        "version": "0.10.2",
                     },
                     "capabilities": {"experimentalApi": True},
                 },
@@ -1369,9 +1369,9 @@ If you are the root task model, you are the orchestrator. Own intent, planning, 
 
 The root owns planning, findings, validation, adjudication, and release to implementation. There is no automatic planning or review loop and no Finalizer seat.
 
-Before implementation delegation, classify the task once. Keep trivial work in root. Use the configured Executor as the routine lane for bounded, well-specified, low-risk work. Use the exact hard/risky lane `model = {HARD_MODEL!r}, reasoning_effort = {LANE_EFFORT!r}, fork_turns = "none"` for security, authentication, state, destructive behavior, migrations, concurrency, unclear legacy contracts, broad refactors, or other material ambiguity and blast radius. When uncertain, use the hard/risky lane. If Luna discovers hidden risk, stop, correct the packet, and make at most one Terra attempt; never run both lanes competitively or resend an unchanged prompt.
+Before implementation delegation, classify the task once. Keep trivial work in root. Apply a warm-root gate: if root already holds the implementation context, owned paths overlap dirty integration, or a cold child must rediscover several packages, keep the work in root. Use the configured Executor as the routine lane only for bounded, well-specified, low-risk work with a known change surface, normally at most three owned files or one narrow module. A slice spanning database schema, migration, seed, API wiring, and tests is hard/state work even when bounded. Use the exact hard/risky lane `model = {HARD_MODEL!r}, reasoning_effort = {LANE_EFFORT!r}, fork_turns = "none"` for security, authentication, state, destructive behavior, migrations, concurrency, unclear legacy contracts, broad refactors, or other material ambiguity and blast radius. When uncertain, use the hard/risky lane. If Luna discovers hidden risk, stop, correct the packet, and make at most one Terra attempt; never run both lanes competitively or resend an unchanged prompt.
 
-Give each worker one bounded packet with OBJECTIVE, OWNERSHIP, CONTRACTS, DONE WHEN, and VERIFY AND RETURN. Do not copy the full transcript, plan, logs, or files the worker can inspect. Inspect every handoff, integrate it, and run final checks yourself.
+Give each worker one bounded packet with OBJECTIVE, OWNERSHIP, CONTRACTS, DONE WHEN, and VERIFY AND RETURN. Do not copy the full transcript, plan, logs, or files the worker can inspect. Every Luna packet must add FIRST ARTIFACT and READ BUDGET stop conditions: at most three batched discovery tool calls before the first edit or exact regression, and within 120 seconds create the smallest safe artifact or return BLOCKED. At that gate root inspects the owned-path diff before messaging or declaring a stall. With no artifact, request one checkpoint and allow at most 60 more seconds. With a partial artifact but no new artifact for 180 seconds, request one checkpoint, allow at most 60 more seconds, and stop the seat. Before interrupting snapshot the owned diff; after interrupting wait for terminal state, snapshot again, and reconcile every partial edit before root touches the same paths or claims no changes. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits. Inspect every handoff, integrate it, and run final checks yourself.
 
 Explicit user instructions win, including no-subagents and task-local seat overrides. Persistent and task-local Planner and Advisor routes must remain distinct: reject the same direct model ID, the same custom-agent name, or more than one bundled Claude subscription seat. This policy does not create or change a Goal, weaken approvals, alter permissions, or force a worker count.
 
@@ -1436,7 +1436,7 @@ If you are the root task model, you are the orchestrator. Apply these routes onl
 
 {route_binding}
 
-Classify before spawning. Keep trivial work in root. For routine, bounded, well-specified, low-risk work, call this tool with {_spawn_route(executor)}, fork_turns = "none". For hard, ambiguous, or high-risk work, call it with model = "{HARD_MODEL}", reasoning_effort = "{LANE_EFFORT}", fork_turns = "none". When uncertain, use Terra. Send only the five-part bounded task packet; do not copy the full conversation.
+Classify before spawning. Keep trivial or warm-root work in root. Luna is only for a known narrow change surface, normally at most three owned files or one module; schema + migration + seed + API + tests is Terra/state work even when bounded. For routine, bounded, well-specified, low-risk work that passes this gate, call this tool with {_spawn_route(executor)}, fork_turns = "none". For hard, ambiguous, or high-risk work, call it with model = "{HARD_MODEL}", reasoning_effort = "{LANE_EFFORT}", fork_turns = "none". When uncertain, use Terra. Send only the five-part bounded task packet; do not copy the full conversation. A Luna packet must require a first artifact within 120 seconds and no more than three batched discovery calls before it; otherwise return BLOCKED. Root must inspect and snapshot the owned diff before declaring a stall or interrupting, then wait for terminal state and reconcile partial edits before takeover. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits.
 
 {fallback_usage}
 

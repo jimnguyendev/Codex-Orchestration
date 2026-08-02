@@ -12,6 +12,10 @@ dùng, routing state cũ và bằng chứng trung thực về model đã chạy.
 | Đe dọa | Kiểm soát và bằng chứng |
 | --- | --- |
 | Việc rủi ro bị đưa cho Luna | Policy liệt kê security/auth/state, destructive operation, migration, concurrency, legacy contract mơ hồ, broad refactor và blast radius lớn là Terra. Không chắc thì chọn Terra. Test kiểm tra exact Terra Max route. |
+| Slice stateful bị gọi là routine chỉ vì ownership đã khóa | Warm-root gate giữ việc ở Root khi Root đã có context hoặc dirty paths đang tích hợp. Slice gồm schema + migration + seed + API + tests bắt buộc là Terra/state work; Luna thường chỉ nhận tối đa ba file hoặc một module hẹp. |
+| Luna đọc lặp lại nhưng chưa tạo artifact | Packet có `FIRST ARTIFACT` và `READ BUDGET`: tối đa ba lượt đọc theo batch trước edit/test đầu tiên; trong 120 giây phải tạo artifact nhỏ nhất hoặc trả `BLOCKED`. Các giới hạn thời gian, lượt đọc và token là policy instruction/stop condition của orchestration, không phải giới hạn được host cưỡng chế. |
+| Root coi im lặng là stall dù child đã sửa file | Đến progress gate, Root đọc diff của owned paths trước khi nhắn hoặc kết luận. Artifact trên shared worktree là evidence kể cả khi child chưa gửi checkpoint. |
+| Interrupt làm mất attribution hoặc Root sửa chồng | Root snapshot diff trước interrupt, cho checkpoint cuối tối đa 60 giây, chờ child terminal, snapshot lại, reconcile partial edits rồi mới nhận ownership. Không được nói “không có thay đổi” hoặc chạm cùng path trước handoff. |
 | Saved Luna Executor bắt luôn việc khó | Managed hints 0.10 có marker hai lane và pin Terra Max cho hard/risky. Policy trước 0.10 thiếu marker phải làm strict status thất bại cho đến khi fresh setup hoặc disable. |
 | Fresh setup lưu route routine không phải Luna Max | Argument validation chỉ nhận `gpt-5.6-luna@max`; custom hoặc model/effort khác fail trước App Server write. State cũ khác route chỉ còn status/repair/disable compatibility. |
 | Configured Planner/Advisor tự sinh thêm vòng gọi | Managed mode và usage hint ghi rõ config không đồng nghĩa invoke. Chỉ current-task request hoặc repository/risk gate mới được gọi; regression test cấm ngôn ngữ auto-loop cũ. |
@@ -38,6 +42,10 @@ dùng, routing state cũ và bằng chứng trung thực về model đã chạy.
 - Permission, auth, timeout, cancellation và task error không được biến thành
   fallback signal.
 - Child đã có provenance không được kích hoạt retry legacy.
+- Luna vượt read budget mà chưa có artifact phải trả `BLOCKED`; Root chỉ được gửi
+  một checkpoint request trước khi dừng.
+- Interrupt không được chuyển ownership cho Root cho tới khi child terminal và hai
+  snapshot owned-path diff đã được reconcile.
 
 ## Rủi ro còn lại
 

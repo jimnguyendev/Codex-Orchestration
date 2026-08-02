@@ -83,3 +83,25 @@ Chọn một tập task lặp lại và chạy tối thiểu ba chiến lược:
 Ghi lại input/cached/output, wall time, tool calls, retry, test pass lần đầu và
 thời gian sửa lại. Chỉ so task cùng acceptance criteria. Không dùng một demo thành
 công để suy ra mọi workload.
+
+## Case study: workflow `opengithub` ngày 2026-08-02
+
+Bốn Luna child session/turn group trong cùng workflow ghi nhận tổng cộng:
+
+| Chỉ số | Giá trị quan sát |
+| --- | ---: |
+| Logical total tokens | 7.015.727 |
+| Input tokens | 6.944.656 |
+| Cached input | 6.614.016 |
+| Uncached input | 330.640 |
+| Output tokens | 71.071 |
+| Reasoning output | 21.088 |
+| Tổng wall time | khoảng 25 phút 48 giây |
+
+Đây là counter trong rollout, không phải hóa đơn hay phép quy đổi trực tiếp sang
+phần trăm quota tuần. Tuy vậy nó cho thấy `fork_turns=none` không loại bỏ instruction
+payload nền và mỗi tool call vẫn có thể lặp lại context lớn. Seat DB/API cuối gọi tám
+lượt đọc trước patch đầu tiên ở giây 101; patch đã tồn tại nhưng Root chỉ dựa vào im
+lặng, dừng seat ở giây 335 rồi tự takeover. Vì vậy 0.10.2 thêm warm-root gate,
+first-artifact/read budget và diff-aware interrupt protocol; không dùng riêng elapsed
+time để kết luận Luna không làm gì.

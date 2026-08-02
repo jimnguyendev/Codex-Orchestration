@@ -19,11 +19,19 @@ handoff. Otherwise choose exactly one implementation lane before the first spawn
 
 - **Luna Max — routine:** bounded, well-specified, low-blast-radius work whose result
   is largely determined by existing contracts. Examples: mechanical edits, wiring,
-  CRUD, straightforward tests, small migrations, and localized bug fixes.
+  CRUD, straightforward tests, and localized bug fixes.
 - **Terra Max — hard or risky:** work needing material judgment, broad context, or
   stronger failure analysis. Examples: security/auth/state changes, concurrency,
   data loss or migration risk, difficult debugging, non-trivial algorithms, broad
   refactors, unclear legacy behavior, public contracts, and large blast radius.
+
+Apply a warm-root gate before choosing Luna. Keep the work in root when root already
+holds the relevant implementation context, the owned paths overlap a dirty integration,
+or a cold child would have to rediscover several packages before editing. A Luna slice
+should normally have a known change surface of at most three owned files or one narrow
+module. A slice spanning database schema, migration, seed, API wiring, and tests is
+Terra/state work even when its ownership is bounded. Bounded ownership alone does not
+make a task routine.
 
 When uncertain, use Terra. Route by task shape rather than model prestige. A user's
 explicit lane or `no subagents` instruction overrides this default.
@@ -68,6 +76,12 @@ paths and precise facts over copied content. One worker owns one bounded slice. 
 workers in parallel only when write ownership and dependencies are genuinely
 independent; otherwise run serially.
 
+For Luna, add two explicit stop conditions to `DONE WHEN`: `FIRST ARTIFACT` and
+`READ BUDGET`. Before the first edit or exact regression test, Luna may make at most
+three batched discovery tool calls. Within 120 seconds it must create the smallest safe
+artifact or return `BLOCKED` with the newly discovered ambiguity. These are
+orchestration stop conditions, not host-enforced time or token limits.
+
 This packet preserves the trajectory but is not Elves-style prewalk. True prewalk
 switches models inside the same worker session after orientation, a bounded TODO, and
 the first real edit. A new Codex child is a cold handoff even when its packet is good;
@@ -84,6 +98,21 @@ The saved Executor fallback from older plugin versions is compatibility-only. It
 not the Luna/Terra routing policy: it reacts narrowly to an unknown-model error and
 must never be used to classify hard work. New workflows should select Luna or Terra
 explicitly before spawning.
+
+## Luna progress and takeover protocol
+
+Do not infer a stall from silence or elapsed time alone. At the 120-second first-artifact
+gate, root must inspect the worker-owned diff before sending a message or claiming no
+work exists. A file edit or exact new regression is progress even if Luna has not sent
+a checkpoint. If no artifact exists, send one `checkpoint now` request and allow at
+most 60 more seconds. If a partial artifact exists but no new artifact appears for 180
+seconds, request a checkpoint once, allow at most 60 more seconds, and then stop the
+seat.
+
+Before interrupting, snapshot the owned-path diff. After interrupting, wait for the
+child to reach a terminal state and snapshot the diff again. Reconcile and attribute
+every partial edit before root takes ownership; root must not edit the same paths or
+say “no changes” before this handoff completes. Never launch an unchanged retry.
 
 ## Verification
 
@@ -234,7 +263,9 @@ reasoning output, tool calls, retries, and rework. Lowering root reasoning effor
 save time and reasoning tokens while preserving one model's cache opportunity, but it
 does not change that model's unit price. A Luna handoff may still win when its lower
 unit cost exceeds cold-start overhead; verify current prices before publishing exact
-percentages.
+percentages. Report logical input, cached input, uncached input, output, wall time,
+first-artifact latency, and rework separately; a large cached share does not make a
+run operationally free.
 
 ## Packaged resources
 

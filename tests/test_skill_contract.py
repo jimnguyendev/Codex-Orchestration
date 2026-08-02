@@ -60,6 +60,17 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("compatibility-only", SKILL)
         self.assertIn("must never be used to classify hard work", SKILL)
 
+    def test_luna_has_warm_root_progress_and_takeover_guards(self) -> None:
+        self.assertIn("Apply a warm-root gate", SKILL)
+        self.assertIn("database schema, migration, seed, API wiring, and tests", SKILL)
+        self.assertIn("at most\nthree batched discovery tool calls", SKILL)
+        self.assertIn("Within 120 seconds", SKILL)
+        self.assertIn("allow at most 60 more seconds", SKILL)
+        self.assertIn("inspect the worker-owned diff", SKILL)
+        self.assertIn("wait for the\nchild to reach a terminal state", SKILL)
+        self.assertIn("must not edit the same paths", SKILL)
+        self.assertIn("not host-enforced time or token limits", SKILL)
+
     def test_reviews_and_planning_are_not_automatic(self) -> None:
         self.assertIn("not automatically create Planner, Advisor, Designer", SKILL)
         self.assertIn("Do not add a routine final-review spawn", SKILL)
@@ -115,6 +126,8 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("verify current prices", SKILL)
         self.assertNotIn("about 64% fewer credits", SKILL)
         self.assertNotIn("published Luna rate of 20%", SKILL)
+        self.assertIn("cached input, uncached input", SKILL)
+        self.assertIn("first-artifact latency", SKILL)
 
     def test_user_docs_match_default_contract(self) -> None:
         for surface in (README, README_VI):

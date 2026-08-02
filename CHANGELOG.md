@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.2 — Unreleased
+
+- Add a warm-root gate and classify combined database schema, migration, seed,
+  API, and test slices as Terra/state work instead of Luna routine work.
+- Bound Luna discovery before its first artifact, require diff-aware progress
+  checks, and make interrupt/takeover reconcile partial edits before root writes.
+- Document logical, cached, uncached, output, latency, and rework evidence from a
+  real multi-seat Luna workflow without presenting token counters as billing.
+
 ## 0.10.1 — Unreleased
 
 - Accept Claude Code's current first-party `canonicalModel` and `provider`
