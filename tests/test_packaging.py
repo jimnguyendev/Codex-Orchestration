@@ -136,7 +136,7 @@ class PackagingTests(unittest.TestCase):
         )
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertEqual(manifest["name"], "codex-orchestration")
-        self.assertEqual(manifest["version"], "0.10.0")
+        self.assertEqual(manifest["version"], "0.10.1")
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertEqual(manifest["mcpServers"], "./.mcp.json")
         self.assertEqual(
@@ -145,7 +145,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(manifest["author"]["name"], "CJ Zafir")
         self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./plugins/codex-orchestration")
-        self.assertIn("## 0.10.0 — Unreleased", changelog)
+        self.assertIn("## 0.10.1 — Unreleased", changelog)
 
     def test_runtime_payload_is_compact_and_kimi_free(self) -> None:
         scripts = SKILL_ROOT / "scripts"
@@ -212,7 +212,7 @@ class PackagingTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('OLD_VERSION = "0.5.0"', smoke)
-        self.assertIn('NEW_VERSION = "0.10.0"', smoke)
+        self.assertIn('NEW_VERSION = "0.10.1"', smoke)
         self.assertIn("configure_native_routing.py", smoke)
         self.assertIn("fable_advisor_mcp.py", smoke)
 

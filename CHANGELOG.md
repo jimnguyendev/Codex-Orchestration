@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1 — Unreleased
+
+- Accept Claude Code's current first-party `canonicalModel` and `provider`
+  fields in Fable/Opus runtime usage metadata while continuing to reject
+  unreviewed model identities, providers, and string-valued fields.
+
 ## 0.10.0 — Unreleased
 
 - Make task-local routing the default: GPT-5.6 Luna at Max for routine work and

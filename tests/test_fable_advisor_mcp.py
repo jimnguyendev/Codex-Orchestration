@@ -700,6 +700,68 @@ class FableAdvisorMcpTests(unittest.TestCase):
                 )
                 self.assertEqual(result["decision"], "PLAN_APPROVED")
 
+    def test_runtime_model_usage_accepts_current_first_party_identity_metadata(
+        self,
+    ) -> None:
+        usage = {
+            FABLE.FABLE_HELPER_MODEL: {
+                "inputTokens": 523,
+                "outputTokens": 11,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+                "webSearchRequests": 0,
+                "costUSD": 0.0005780000000000001,
+                "contextWindow": 200000,
+                "maxOutputTokens": 32000,
+                "canonicalModel": "claude-haiku-4-5",
+                "provider": "firstParty",
+            },
+            FABLE.FABLE_MODEL: {
+                "inputTokens": 187,
+                "outputTokens": 4,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+                "webSearchRequests": 0,
+                "costUSD": 0.00207,
+                "contextWindow": 1000000,
+                "maxOutputTokens": 64000,
+                "canonicalModel": FABLE.FABLE_MODEL,
+                "provider": "firstParty",
+            },
+        }
+
+        result, _ = self.invoke_with_results(
+            FABLE.review_plan,
+            "packet",
+            model_response="PLAN_APPROVED\nNo material gap found.",
+            model_usage=usage,
+        )
+
+        self.assertEqual(result["decision"], "PLAN_APPROVED")
+        self.assertEqual(
+            result["used_models"],
+            sorted((FABLE.FABLE_HELPER_MODEL, FABLE.FABLE_MODEL)),
+        )
+
+    def test_runtime_model_usage_identity_metadata_fails_closed(self) -> None:
+        rejected = (
+            {"canonicalModel": "claude-unreviewed", "outputTokens": 1},
+            {"canonicalModel": FABLE.FABLE_MODEL, "provider": "thirdParty"},
+            {"provider": "firstParty", "unexpectedIdentity": "value"},
+            {"canonicalModel": 7, "outputTokens": 1},
+            {"canonicalModel": [], "outputTokens": 1},
+            {"canonicalModel": {}, "outputTokens": 1},
+        )
+        for usage_value in rejected:
+            with self.subTest(usage_value=usage_value):
+                with self.assertRaisesRegex(FABLE.AdvisorError, "[Rr]untime metadata"):
+                    self.invoke_with_results(
+                        FABLE.review_plan,
+                        "packet",
+                        model_response="PLAN_APPROVED\nNo material gap found.",
+                        model_usage={FABLE.FABLE_MODEL: usage_value},
+                    )
+
     def test_each_operation_pins_its_authorized_seat_effort(self) -> None:
         self.write_state(planner=self.route("low"))
         created, create_calls = self.invoke_with_results(

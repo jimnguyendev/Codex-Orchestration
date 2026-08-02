@@ -1,6 +1,6 @@
 {
   "name": "codex-orchestration",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Route routine implementation to Luna Max and hard or risky work to Terra Max while the current task remains root.",
   "author": {
     "name": "CJ Zafir",

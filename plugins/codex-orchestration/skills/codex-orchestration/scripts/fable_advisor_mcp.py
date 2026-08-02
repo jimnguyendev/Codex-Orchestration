@@ -49,6 +49,15 @@ ALLOWED_RUNTIME_MODELS_BY_PRIMARY = {
     # Claude Code reports anything beyond the sealed primary.
     OPUS_MODEL: frozenset({OPUS_MODEL}),
 }
+CANONICAL_RUNTIME_MODELS_BY_REPORTED_MODEL = {
+    FABLE_MODEL: frozenset({FABLE_MODEL}),
+    FABLE_RESOLVED_PRIMARY_MODEL: frozenset(
+        {FABLE_MODEL, FABLE_RESOLVED_PRIMARY_MODEL}
+    ),
+    FABLE_HELPER_MODEL: frozenset({"claude-haiku-4-5"}),
+    OPUS_MODEL: frozenset({OPUS_MODEL}),
+}
+RUNTIME_PROVIDER = "firstParty"
 CLAUDE_TIMEOUT_SECONDS = 600
 AUTH_TIMEOUT_SECONDS = 20
 # Applies to the combined user-controlled text sent by one model operation.
@@ -373,10 +382,30 @@ def _validate_runtime_models(
             f"Runtime metadata reported a model outside the allowed {policy_label} "
             "runtime policy."
         )
-    for model_usage in usage.values():
+    for reported_model, model_usage in usage.items():
         if not isinstance(model_usage, dict) or not model_usage:
             raise AdvisorError("Runtime metadata has a malformed modelUsage value.")
         for field, value in model_usage.items():
+            if field == "canonicalModel":
+                allowed_canonical_models = (
+                    CANONICAL_RUNTIME_MODELS_BY_REPORTED_MODEL.get(reported_model)
+                )
+                if (
+                    not isinstance(value, str)
+                    or not value
+                    or allowed_canonical_models is None
+                    or value not in allowed_canonical_models
+                ):
+                    raise AdvisorError(
+                        "Runtime metadata has a malformed modelUsage value."
+                    )
+                continue
+            if field == "provider":
+                if value != RUNTIME_PROVIDER:
+                    raise AdvisorError(
+                        "Runtime metadata has a malformed modelUsage value."
+                    )
+                continue
             is_nonnegative_finite_number = (
                 type(value) is int
                 and value >= 0
