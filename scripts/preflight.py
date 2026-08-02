@@ -30,12 +30,7 @@ ROUTING_PORTABILITY_MODULES = (
     "tests.test_fable_advisor_mcp",
 )
 EXTERNAL_PORTABILITY_MODULES = (
-    "tests.test_external_cli_trust",
-    "tests.test_external_configurator",
-    "tests.test_external_credentials",
     "tests.test_external_providers",
-    "tests.test_external_readiness",
-    "tests.test_external_registry",
     "tests.test_external_subscription",
 )
 

@@ -1,7 +1,7 @@
 interface:
   display_name: "Codex Orchestration"
-  short_description: "Plan, review, design, and build with multiple models"
-  default_prompt: "Use $codex-orchestration:codex-orchestration to configure model roles."
+  short_description: "Route routine work to Luna and hard work to Terra"
+  default_prompt: "Use $codex-orchestration:codex-orchestration to route this implementation."
 
 policy:
   allow_implicit_invocation: true

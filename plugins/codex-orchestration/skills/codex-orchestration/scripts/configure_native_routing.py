@@ -56,7 +56,10 @@ except ModuleNotFoundError as exc:  # pragma: no cover - Python < 3.11
 
 POLICY_VERSION = 6
 STATE_SCHEMA = 6
-ADVISOR_REVIEW_LIMIT = 8
+TWO_LANE_POLICY_MARKER = "[codex-orchestration workflow 0.10 two-lane]"
+ROUTINE_MODEL = "gpt-5.6-luna"
+HARD_MODEL = "gpt-5.6-terra"
+LANE_EFFORT = "max"
 STATE_FILENAME = ".codex-orchestration-routing.json"
 PROBE_VALUE = "CODEX_ORCHESTRATION_CAPABILITY_PROBE"
 PLUGIN_ID = "codex-orchestration@codex-orchestration"
@@ -116,15 +119,18 @@ def parse_args() -> argparse.Namespace:
     )
 
     executor = parser.add_mutually_exclusive_group()
-    executor.add_argument("--executor-model", help="Exact model ID for direct routing.")
+    executor.add_argument(
+        "--executor-model",
+        help="Persistent 0.10 setup requires gpt-5.6-luna.",
+    )
     executor.add_argument(
         "--executor-agent",
-        help="Loaded custom-agent name for durable or cross-provider routing.",
+        help="Legacy input retained for validation; 0.10 persistent setup rejects it.",
     )
     parser.add_argument(
         "--executor-effort",
         default="auto",
-        help="Exact supported effort, or auto (resolved to the catalog default).",
+        help="Persistent 0.10 setup requires max; auto resolves to max for Luna.",
     )
     executor_fallback = parser.add_mutually_exclusive_group()
     executor_fallback.add_argument(
@@ -262,8 +268,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         args.executor_model or args.executor_agent
     ):
         raise ConfigurationError(
-            "Setup requires --executor-model or --executor-agent. "
-            "Advisor omission means none. Designer omission means none."
+            "Setup requires --executor-model gpt-5.6-luna at max. Advisor omission "
+            "means none. Designer omission means none."
         )
     if args.executor_agent and args.executor_effort != "auto":
         raise ConfigurationError(
@@ -339,6 +345,17 @@ def _validate_args(args: argparse.Namespace) -> None:
     ):
         if value != "auto" and not EFFORT_RE.fullmatch(value):
             raise ConfigurationError(f"Invalid {label}: {value!r}.")
+    setup_requested = not (args.status or args.repair or args.disable)
+    if setup_requested and (
+        args.executor_model != ROUTINE_MODEL
+        or args.executor_effort not in {"auto", LANE_EFFORT}
+    ):
+        raise ConfigurationError(
+            "Version 0.10 persistent setup requires the exact routine Executor "
+            f"{ROUTINE_MODEL}@{LANE_EFFORT}. Arbitrary and custom Executor routes "
+            "remain task-local; existing saved routes are available only through "
+            "status, repair, and disable."
+        )
 
 
 def normalize_fable_effort(value: str) -> str:
@@ -505,7 +522,7 @@ class AppServer:
                     "clientInfo": {
                         "name": "codex_orchestration_installer",
                         "title": "Codex Orchestration Installer",
-                        "version": "0.9.4",
+                        "version": "0.10.0",
                     },
                     "capabilities": {"experimentalApi": True},
                 },
@@ -1266,17 +1283,6 @@ def build_policy(
             "designer": designer,
         }
     )
-    advisor_review_limit = (
-        "zero",
-        "one",
-        "two",
-        "three",
-        "four",
-        "five",
-        "six",
-        "seven",
-        "eight",
-    )[ADVISOR_REVIEW_LIMIT]
     has_direct_route = executor["kind"] == "model" or (
         planner is not None and planner["kind"] == "model"
     ) or (
@@ -1309,21 +1315,19 @@ On that one eligible result only, consume eligibility before retrying exactly on
             "route after a primary failure."
         )
     planner_mode = (
-        "When a plan is needed, the configured Planner drafts it and handles any "
-        "Advisor-requested revision. The root supplies a self-contained packet, owns "
-        "the canonical plan and version, validates every result, and decides whether "
-        "the work is simple enough not to require a plan."
+        "The configured Planner is available only when the current task explicitly "
+        "requests planning or a repository gate requires it. Configuration alone "
+        "never invokes Planner. Root supplies a bounded packet, owns the canonical "
+        "plan, and validates every result."
         if planner is not None
         else "No Planner is configured. The root drafts and revises every plan."
     )
     advisor_mode = (
-        "For a non-trivial plan, the root sends a fresh self-contained review call "
-        "to the configured Advisor before Executor work. PLAN_APPROVED ends review "
-        "early. PLAN_REVISE returns the canonical current plan and version, the "
-        "latest critique, and the cumulative findings ledger to the same configured "
-        "Planner route, or to the root when Planner is omitted, then reviews the "
-        "revised plan again. There may be at most "
-        f"{advisor_review_limit} total Advisor reviews."
+        "The configured Advisor is available only when the current task explicitly "
+        "requests review or a repository/risk gate requires independent review. "
+        "Configuration alone never invokes Advisor and never creates a review loop. "
+        "Each requested review receives only the current plan, constraints, and a "
+        "compact findings ledger; root adjudicates the result."
         if advisor is not None
         else (
             "No Advisor is configured. Do not create a review loop; after a configured "
@@ -1348,6 +1352,7 @@ On that one eligible result only, consume eligibility before retrying exactly on
         )
     )
     mode = f"""{MANAGED_MARKER}
+{TWO_LANE_POLICY_MARKER}
 This adds model routing to Codex's existing multi-agent flow; it is not a second scheduler.
 
 {route_binding}
@@ -1362,11 +1367,11 @@ If you are the root task model, you are the orchestrator. Own intent, planning, 
 
 {fallback_mode}
 
-The root owns the plan version, cumulative findings ledger, review count, validation, adjudication, and release to Executor. There is no Finalizer seat. For Advisor rounds two through {advisor_review_limit}, send only the current plan and version plus a compact cumulative ledger, not prior transcripts. Ask the Advisor to confirm or contest dispositions without blindly repeating accepted findings. Reject a stale plan version or an invalid or incomplete ledger and halt before Executor.
+The root owns planning, findings, validation, adjudication, and release to implementation. There is no automatic planning or review loop and no Finalizer seat.
 
-On PLAN_REVISE, record the latest finding IDs before revision. After the Planner returns, validate and merge each INCORPORATED or reasoned REJECTED disposition into the cumulative ledger before another Advisor call. A round-{advisor_review_limit} PLAN_REVISE halts before Executor and produces a non-approval artifact containing the latest plan and version, full ledger, latest findings, and choices available to the user. It must not claim approval. Any required Planner or Advisor route failure also halts before Executor. Only an explicit current-task best-effort instruction changes failure handling: Planner failure permits the root to take over planning for the remaining rounds; Advisor failure may proceed only with the result labeled NOT_ADVISOR_APPROVED. No best-effort setting is persisted.
+Before implementation delegation, classify the task once. Keep trivial work in root. Use the configured Executor as the routine lane for bounded, well-specified, low-risk work. Use the exact hard/risky lane `model = {HARD_MODEL!r}, reasoning_effort = {LANE_EFFORT!r}, fork_turns = "none"` for security, authentication, state, destructive behavior, migrations, concurrency, unclear legacy contracts, broad refactors, or other material ambiguity and blast radius. When uncertain, use the hard/risky lane. If Luna discovers hidden risk, stop, correct the packet, and make at most one Terra attempt; never run both lanes competitively or resend an unchanged prompt.
 
-When executor delegation materially improves speed, cost, quality, or context isolation, use only the configured executor route. Give each executor one bounded, self-contained packet with objective, relevant facts, constraints, owned files or read-only scope, dependencies, acceptance criteria, verification, and handoff format. Inspect every handoff, integrate it, and run final checks yourself.
+Give each worker one bounded packet with OBJECTIVE, OWNERSHIP, CONTRACTS, DONE WHEN, and VERIFY AND RETURN. Do not copy the full transcript, plan, logs, or files the worker can inspect. Inspect every handoff, integrate it, and run final checks yourself.
 
 Explicit user instructions win, including no-subagents and task-local seat overrides. Persistent and task-local Planner and Advisor routes must remain distinct: reject the same direct model ID, the same custom-agent name, or more than one bundled Claude subscription seat. This policy does not create or change a Goal, weaken approvals, alter permissions, or force a worker count.
 
@@ -1377,7 +1382,8 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
         "claude_subscription",
     }:
         planner_hint = (
-            "For the initial Planner draft, call `create_plan` from MCP server "
+            "Only after an explicit current-task planning request or repository gate, "
+            "call `create_plan` from MCP server "
             f"{json.dumps(planner['server'])}; after PLAN_REVISE, call `revise_plan` "
             "from that server. These are root tool calls. Require PLAN_DRAFT from "
             "creation, then assign the canonical version. Require PLAN_REVISION, "
@@ -1385,7 +1391,8 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
         )
     elif planner is not None:
         planner_hint = (
-            "For each Planner draft or revision, call this tool with "
+            "Only after an explicit current-task planning request or repository gate, "
+            "call this tool with "
             f"{_spawn_route(planner)}, fork_turns = \"none\". Send the complete "
             "self-contained packet for that round. Require PLAN_DRAFT initially; "
             "require PLAN_REVISION, the source version, complete findings ledger, "
@@ -1398,7 +1405,8 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
         "claude_subscription",
     }:
         advisor_hint = (
-            "For an advisor review, call `review_plan` from MCP server "
+            "Only after an explicit current-task review request or repository/risk "
+            "gate, call `review_plan` from MCP server "
             f"{json.dumps(advisor['server'])} with the round's self-contained packet. "
             "This is a read-only root tool call, not a spawned child. Require "
             "PLAN_APPROVED or PLAN_REVISE and fail closed unless the user explicitly "
@@ -1406,7 +1414,8 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
         )
     elif advisor is not None:
         advisor_hint = (
-            "For an advisor review, call this tool with "
+            "Only after an explicit current-task review request or repository/risk "
+            "gate, call this tool with "
             f"{_spawn_route(advisor)}, fork_turns = \"none\". Send the complete "
             "review packet and require PLAN_APPROVED or PLAN_REVISE."
         )
@@ -1422,11 +1431,12 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
     else:
         designer_hint = "No Designer route is configured."
     usage = f"""{MANAGED_MARKER}
+{TWO_LANE_POLICY_MARKER}
 If you are the root task model, you are the orchestrator. Apply these routes only to children you decide to create.
 
 {route_binding}
 
-For delegated executor work, call this tool with {_spawn_route(executor)}, fork_turns = "none". Send a self-contained task packet.
+Classify before spawning. Keep trivial work in root. For routine, bounded, well-specified, low-risk work, call this tool with {_spawn_route(executor)}, fork_turns = "none". For hard, ambiguous, or high-risk work, call it with model = "{HARD_MODEL}", reasoning_effort = "{LANE_EFFORT}", fork_turns = "none". When uncertain, use Terra. Send only the five-part bounded task packet; do not copy the full conversation.
 
 {fallback_usage}
 
@@ -1506,6 +1516,14 @@ def _current_values(config: dict[str, Any]) -> dict[str, Any]:
 
 def _is_managed(value: Any) -> bool:
     return isinstance(value, str) and value.startswith(MANAGED_MARKER)
+
+
+def _is_two_lane_policy(current: dict[str, Any]) -> bool:
+    return all(
+        isinstance(current[key], str)
+        and TWO_LANE_POLICY_MARKER in current[key]
+        for key in ("mode", "usage")
+    )
 
 
 def _strict_equal(left: Any, right: Any) -> bool:
@@ -1657,7 +1675,14 @@ def _status(
                 current["metadata"] is False
                 and current["namespace"] == ROUTING_TOOL_NAMESPACE
             )
-            if not controls_ready:
+            if state is None:
+                routing_state = "managed hints found without saved state"
+            elif not _is_two_lane_policy(current):
+                routing_state = (
+                    "legacy workflow active; run a fresh explicit setup to install "
+                    "the 0.10 two-lane policy, or disable it"
+                )
+            elif not controls_ready:
                 routing_state = "managed hints found but routing controls are incomplete"
             elif (
                 effective["mode"] == current["mode"]
@@ -1677,6 +1702,18 @@ def _status(
             print(
                 "Recovery: run --repair as a dry run only when the saved plugin "
                 "policy should replace drifted managed hints."
+            )
+        elif routing_state.startswith("legacy workflow active"):
+            print(
+                "Recovery: existing state remains valid for status, repair, and "
+                "disable; run one explicit setup to replace only the managed hints "
+                "with the 0.10 two-lane workflow."
+            )
+        elif routing_state == "managed hints found without saved state":
+            print(
+                "Recovery: saved restore state is missing, so repair and disable are "
+                "unavailable. Review the managed hints, then run one fresh explicit "
+                "setup to create the 0.10 two-lane policy and new restore state."
             )
         print(
             "V2 activation: not inferred by the installer; choose a v2 root "
@@ -2276,43 +2313,11 @@ def _disable(
         if not (managed_mode or managed_usage):
             print("Native routing is already inactive.")
             return 0
-        edits = []
-        rollback: list[dict[str, Any]] = []
-        if managed_mode:
-            edits.append(
-                {
-                    "keyPath": "features.multi_agent_v2.multi_agent_mode_hint_text",
-                    "value": None,
-                    "mergeStrategy": "replace",
-                }
-            )
-            rollback.append(
-                {
-                    "keyPath": "features.multi_agent_v2.multi_agent_mode_hint_text",
-                    "value": current["mode"],
-                    "mergeStrategy": "replace",
-                }
-            )
-        if managed_usage:
-            edits.append(
-                {
-                    "keyPath": "features.multi_agent_v2.usage_hint_text",
-                    "value": None,
-                    "mergeStrategy": "replace",
-                }
-            )
-            rollback.append(
-                {
-                    "keyPath": "features.multi_agent_v2.usage_hint_text",
-                    "value": current["usage"],
-                    "mergeStrategy": "replace",
-                }
-            )
-        label = "string" if len(edits) == 1 else "strings"
-        print(f"Will remove {len(edits)} proven managed hint {label}.")
-        print(
-            "Will leave hide_spawn_agent_metadata and tool_namespace unchanged "
-            "because restore state is missing."
+        raise ConfigurationError(
+            "Cannot disable managed routing hints because saved restore state is "
+            "missing. No config field was changed. Review the hints, then run a "
+            "fresh explicit Luna Max setup to create new restore state or remove "
+            "the stale hints manually."
         )
     else:
         if not _managed_matches(state, current):
@@ -2476,6 +2481,12 @@ def main() -> int:
             state_path = app.codex_home / STATE_FILENAME
             state, state_revision = _read_state_with_revision(state_path)
             _validate_state_config(state, app.config_path)
+            current = _current_values(config)
+            legacy_marker_migration = (
+                state is not None
+                and _managed_matches(state, current)
+                and not _is_two_lane_policy(current)
+            )
             if args.disable:
                 return _disable(
                     app,
@@ -2510,10 +2521,15 @@ def main() -> int:
                         raise
 
             if args.executor_model:
+                requested_executor_effort = (
+                    LANE_EFFORT
+                    if args.executor_effort == "auto"
+                    else args.executor_effort
+                )
                 executor_effort = resolve_model_effort(
                     "Executor",
                     args.executor_model,
-                    args.executor_effort,
+                    requested_executor_effort,
                     catalog,
                     args.confirm_unlisted_models and not args.executor_fallback_model,
                 )
@@ -2647,6 +2663,22 @@ def main() -> int:
                     "server": subscription_server,
                 }
 
+            preserved_subscription_seats: list[str] = []
+            if legacy_marker_migration and isinstance(state, dict):
+                for seat, requested in (("planner", planner), ("advisor", advisor)):
+                    existing_route = state.get(seat)
+                    if (
+                        requested is None
+                        and isinstance(existing_route, dict)
+                        and existing_route.get("kind")
+                        in {"fable", "claude_subscription"}
+                    ):
+                        if seat == "planner":
+                            planner = dict(existing_route)
+                        else:
+                            advisor = dict(existing_route)
+                        preserved_subscription_seats.append(seat)
+
             if args.designer_model:
                 designer_effort = resolve_model_effort(
                     "Designer",
@@ -2708,6 +2740,11 @@ def main() -> int:
             print(f"Planner: {_route_summary(planner) if planner else 'root'}")
             print(f"Advisor: {_route_summary(advisor) if advisor else 'none'}")
             print(f"Designer: {_route_summary(designer) if designer else 'none'}")
+            if preserved_subscription_seats:
+                print(
+                    "Legacy migration preserved existing sealed seat(s): "
+                    + ", ".join(preserved_subscription_seats)
+                )
             if args.planner_fable and args.planner_effort in FABLE_EFFORT_ALIASES:
                 print(
                     f"Planner effort alias: {args.planner_effort} -> "
@@ -2719,9 +2756,15 @@ def main() -> int:
                     f"{advisor['effort']} (Claude Code effective value)"
                 )
             if subscription_auth is not None:
+                configured_subscription = next(
+                    route
+                    for route in (planner, advisor)
+                    if isinstance(route, dict)
+                    and route.get("kind") in {"fable", "claude_subscription"}
+                )
                 subscription_label = (
                     "Claude Opus 5"
-                    if args.planner_opus or args.advisor_opus
+                    if configured_subscription.get("model") == OPUS_MODEL
                     else "Claude Fable 5"
                 )
                 print(

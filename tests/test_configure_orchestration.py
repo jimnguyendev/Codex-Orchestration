@@ -262,7 +262,7 @@ class ConfigureOrchestrationTests(unittest.TestCase):
 
     def test_standalone_executor_schema_and_instructions(self) -> None:
         generated = CONFIGURE.build_agent_file(
-            "executor", "executor-test", "medium", None
+            "executor", "executor-test", "medium"
         )
         parsed = tomllib.loads(generated)
 
@@ -278,13 +278,13 @@ class ConfigureOrchestrationTests(unittest.TestCase):
 
     def test_standalone_advisor_schema_is_read_only_and_root_only(self) -> None:
         generated = CONFIGURE.build_agent_file(
-            "advisor", "advisor-test", "high", "anthropic"
+            "advisor", "advisor-test", "high"
         )
         parsed = tomllib.loads(generated)
 
         self.assertEqual(parsed["name"], CONFIGURE.ADVISOR_NAME)
         self.assertEqual(parsed["sandbox_mode"], "read-only")
-        self.assertEqual(parsed["model_provider"], "anthropic")
+        self.assertNotIn("model_provider", parsed)
         instructions = parsed["developer_instructions"]
         self.assertIn("PLAN_APPROVED", instructions)
         self.assertIn("PLAN_REVISE", instructions)
@@ -499,7 +499,7 @@ multi_agent = true
             _, executor, _ = self.paths(root)
             executor.parent.mkdir(parents=True)
             generated = CONFIGURE.build_agent_file(
-                "executor", "executor-test", "medium", None
+                "executor", "executor-test", "medium"
             )
             executor.write_text("# user file\n" + generated, encoding="utf-8")
 
@@ -520,7 +520,7 @@ multi_agent = true
                 _, executor, _ = self.paths(root)
                 executor.parent.mkdir(parents=True)
                 base = CONFIGURE.build_agent_file(
-                    "executor", "executor-test", "medium", None
+                    "executor", "executor-test", "medium"
                 )
                 if addition.startswith("description"):
                     parsed_line = f"description = {CONFIGURE.toml_string(CONFIGURE.EXECUTOR_DESCRIPTION)}\n"
@@ -557,7 +557,7 @@ multi_agent = true
             existing.parent.mkdir(parents=True)
             existing.write_text(
                 CONFIGURE.build_agent_file(
-                    "executor", "executor-test", "medium", None
+                    "executor", "executor-test", "medium"
                 ),
                 encoding="utf-8",
             )
@@ -582,44 +582,45 @@ multi_agent = true
             self.assertIn("personal-scope only", stderr)
             self.assertFalse((root / ".codex").exists())
 
-    def test_project_provider_flags_are_refused_without_writes(self) -> None:
+    def test_provider_flags_are_retired_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             result, _, stderr = self.run_main(
                 root, "--executor-provider", "anthropic", "--apply"
             )
             self.assertEqual(result, 2)
-            self.assertIn("Project-scoped", stderr)
+            self.assertIn("Provider-pinned custom-role creation was removed", stderr)
             self.assertFalse((root / ".codex").exists())
 
-    def test_personal_known_provider_is_written_but_definition_is_not(self) -> None:
+    def test_configured_openrouter_provider_cannot_create_managed_role(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
             config = home / "config.toml"
+            original = (
+                '[model_providers.openrouter]\n'
+                'name = "Configured elsewhere"\n'
+                'base_url = "https://openrouter.example.test"\n'
+            )
             config.write_text(
-                '[model_providers.anthropic]\nname = "Configured elsewhere"\nbase_url = "https://example.test"\n',
+                original,
                 encoding="utf-8",
             )
-            result, _, _ = self.run_main(
+            result, _, stderr = self.run_main(
                 home,
                 "--scope",
                 "personal",
                 "--codex-home",
                 str(home),
                 "--executor-provider",
-                "anthropic",
+                "openrouter",
                 "--apply",
             )
             executor = home / "agents" / CONFIGURE.EXECUTOR_FILENAME
 
-            self.assertEqual(result, 0)
-            parsed = tomllib.loads(executor.read_text(encoding="utf-8"))
-            self.assertEqual(parsed["model_provider"], "anthropic")
-            self.assertEqual(
-                config.read_text(encoding="utf-8"),
-                '[model_providers.anthropic]\nname = "Configured elsewhere"\nbase_url = "https://example.test"\n',
-            )
-            self.assertNotIn("base_url", executor.read_text(encoding="utf-8"))
+            self.assertEqual(result, 2)
+            self.assertIn("Provider-pinned custom-role creation was removed", stderr)
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+            self.assertFalse(executor.exists())
 
     def test_personal_route_names_are_stable_and_distinct_from_project_roles(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -678,7 +679,7 @@ multi_agent = true
                 "--apply",
             )
             self.assertEqual(result, 2)
-            self.assertIn("neither built in nor defined", stderr)
+            self.assertIn("Provider-pinned custom-role creation was removed", stderr)
 
     def test_catalog_source_is_reported_exactly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -921,7 +922,7 @@ max_depth = 1'''
             _, executor, _ = self.paths(root)
             executor.parent.mkdir(parents=True)
             crlf_executor = CONFIGURE.build_agent_file(
-                "executor", "executor-test", "medium", None
+                "executor", "executor-test", "medium"
             ).replace("\n", "\r\n")
             executor.write_bytes(crlf_executor.encode("utf-8"))
 
@@ -1193,7 +1194,7 @@ multi_agent = true'''
             )
 
             self.assertEqual(result, 2)
-            self.assertIn("neither built in nor defined", stderr)
+            self.assertIn("will not recreate", stderr)
 
     def test_different_existing_backup_blocks_migration(self) -> None:
         for existing_backup in ("different", ""):

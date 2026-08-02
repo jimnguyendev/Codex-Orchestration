@@ -438,6 +438,25 @@ class NativeRoutingTests(unittest.TestCase):
             (self.home / ".fake-user-config.json").read_text(encoding="utf-8")
         )
 
+    def make_saved_policy_markerless(self) -> dict[str, object]:
+        state_path = self.home / NATIVE.STATE_FILENAME
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        config_path = self.home / ".fake-user-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        feature = config["features"]["multi_agent_v2"]
+        for state_key, config_key in (
+            ("mode", "multi_agent_mode_hint_text"),
+            ("usage", "usage_hint_text"),
+        ):
+            legacy = state["managed"][state_key].replace(
+                NATIVE.TWO_LANE_POLICY_MARKER + "\n", "", 1
+            )
+            state["managed"][state_key] = legacy
+            feature[config_key] = legacy
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        return state
+
     def write_personal_agent(self, name: str, *, managed: bool = False) -> Path:
         agents = self.home / "agents"
         agents.mkdir(exist_ok=True)
@@ -458,55 +477,41 @@ class NativeRoutingTests(unittest.TestCase):
         return path
 
     def test_policy_keeps_root_authority_and_pins_fork_none(self) -> None:
-        executor = {"kind": "model", "model": "gpt-5.6-luna", "effort": "xhigh"}
+        executor = {"kind": "model", "model": "gpt-5.6-luna", "effort": "max"}
         planner = {"kind": "model", "model": "gpt-5.6-sol", "effort": "high"}
         advisor = {"kind": "model", "model": "gpt-5.6-terra", "effort": "high"}
         designer = {"kind": "model", "model": "gpt-5.6-luna", "effort": "high"}
         mode, usage = NATIVE.build_policy(executor, planner, advisor, designer)
 
+        self.assertIn(NATIVE.TWO_LANE_POLICY_MARKER, mode)
+        self.assertIn(NATIVE.TWO_LANE_POLICY_MARKER, usage)
         self.assertIn("root task model, you are the orchestrator", mode)
         self.assertIn("Codex still decides whether a plan or subagent helps", mode)
         self.assertIn("never spawn descendants", mode)
         self.assertIn("Explicit user instructions win", mode)
         self.assertIn("Persistent and task-local Planner and Advisor routes", mode)
-        self.assertEqual(NATIVE.ADVISOR_REVIEW_LIMIT, 8)
-        self.assertIn("at most eight total Advisor reviews", mode)
-        self.assertIn("PLAN_APPROVED ends review early", mode)
-        self.assertIn("rounds two through eight", mode)
-        self.assertIn(
-            "current plan and version plus a compact cumulative ledger, not prior transcripts",
-            mode,
-        )
-        self.assertIn("round-eight PLAN_REVISE halts before Executor", mode)
-        self.assertIn("non-approval artifact", mode)
-        self.assertIn("NOT_ADVISOR_APPROVED", mode)
-        self.assertIn("Planner failure permits the root to take over", mode)
-        self.assertIn("stale plan version", mode)
-        self.assertIn("invalid or incomplete ledger", mode)
-        stale_limit_word = "fi" + "ve"
-        self.assertNotIn(f"{stale_limit_word} total Advisor reviews", mode)
-        self.assertNotIn(f"round-{stale_limit_word} PLAN_REVISE", mode)
-        self.assertNotIn(f"rounds two through {stale_limit_word}", mode)
-        self.assertIn("There is no Finalizer seat", mode)
+        self.assertIn("Configuration alone never invokes Planner", mode)
+        self.assertIn("Configuration alone never invokes Advisor", mode)
+        self.assertIn("never creates a review loop", mode)
+        self.assertIn("There is no automatic planning or review loop", mode)
+        self.assertNotIn("before Executor work", mode)
+        self.assertNotIn("at most eight total Advisor reviews", mode)
+        self.assertIn("no Finalizer seat", mode)
         self.assertIn("configured Designer", mode)
         self.assertIn("design artifacts", mode)
         self.assertIn("or release Executor", mode)
         self.assertIn("cannot contact each other", mode)
         self.assertIn("cannot contact each other, Designer, or Executors", mode)
-        self.assertLess(
-            mode.index("configured Planner drafts"),
-            mode.index("fresh self-contained review call"),
-        )
-        self.assertLess(
-            mode.index("fresh self-contained review call"),
-            mode.index("On PLAN_REVISE"),
-        )
-        self.assertLess(
-            mode.index("On PLAN_REVISE"),
-            mode.index("When executor delegation"),
-        )
+        self.assertIn("classify the task once", mode)
+        self.assertIn("Use the configured Executor as the routine lane", mode)
+        self.assertIn("gpt-5.6-terra", mode)
+        self.assertIn("reasoning_effort = 'max'", mode)
         self.assertIn('model = "gpt-5.6-luna"', usage)
-        self.assertIn('reasoning_effort = "xhigh"', usage)
+        self.assertIn('reasoning_effort = "max"', usage)
+        self.assertIn('model = "gpt-5.6-terra"', usage)
+        self.assertIn('reasoning_effort = "max"', usage)
+        self.assertIn("For routine, bounded", usage)
+        self.assertIn("For hard, ambiguous, or high-risk work", usage)
         self.assertIn('model = "gpt-5.6-sol"', usage)
         self.assertIn("For delegated design work", usage)
         self.assertGreaterEqual(usage.count('fork_turns = "none"'), 4)
@@ -518,40 +523,30 @@ class NativeRoutingTests(unittest.TestCase):
         self.assertNotIn("tool_namespace", mode + usage)
         self.assertNotIn("enabled = true", mode + usage)
 
-    def test_policy_renders_every_review_bound_from_the_authoritative_limit(
-        self,
-    ) -> None:
-        executor = {"kind": "model", "model": "gpt-5.6-luna", "effort": "xhigh"}
+    def test_configured_planner_and_advisor_require_explicit_task_authority(self) -> None:
+        executor = {"kind": "model", "model": "gpt-5.6-luna", "effort": "max"}
         planner = {"kind": "model", "model": "gpt-5.6-sol", "effort": "high"}
         advisor = {"kind": "model", "model": "gpt-5.6-terra", "effort": "high"}
+        mode, usage = NATIVE.build_policy(executor, planner, advisor)
 
-        with mock.patch.object(NATIVE, "ADVISOR_REVIEW_LIMIT", 7):
-            mode, _ = NATIVE.build_policy(executor, planner, advisor)
-
-        for expected in (
-            "at most seven total Advisor reviews",
-            "rounds two through seven",
-            "round-seven PLAN_REVISE",
-        ):
-            self.assertIn(expected, mode)
-        for hard_coded in (
-            "at most eight total Advisor reviews",
-            "rounds two through eight",
-            "round-eight PLAN_REVISE",
-        ):
-            self.assertNotIn(hard_coded, mode)
+        self.assertIn("current task explicitly requests planning", mode)
+        self.assertIn("current task explicitly requests review", mode)
+        self.assertIn("Only after an explicit current-task planning request", usage)
+        self.assertIn("Only after an explicit current-task review request", usage)
+        self.assertNotIn("fresh self-contained review call", mode)
+        self.assertNotIn("PLAN_REVISE halts before Executor", mode)
 
     def test_policy_root_fallback_planner_without_advisor_and_fable_hints(self) -> None:
         executor = {"kind": "model", "model": "gpt-5.6-luna", "effort": "high"}
         advisor = {"kind": "model", "model": "gpt-5.6-terra", "effort": "high"}
         root_mode, root_usage = NATIVE.build_policy(executor, None, advisor)
         self.assertIn("root drafts and revises every plan", root_mode)
-        self.assertIn("fresh self-contained review call", root_mode)
+        self.assertIn("current task explicitly requests review", root_mode)
         self.assertIn("No Planner route is configured", root_usage)
 
         planner = {"kind": "model", "model": "gpt-5.6-sol", "effort": "xhigh"}
         planner_mode, planner_usage = NATIVE.build_policy(executor, planner, None)
-        self.assertIn("root validates the plan before releasing Executor", planner_mode)
+        self.assertIn("Configuration alone never invokes Planner", planner_mode)
         self.assertIn("No advisor route is configured", planner_usage)
         self.assertNotIn("review_plan", planner_usage)
 
@@ -642,7 +637,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--executor-fallback-model",
             "gpt-5.6-terra",
             "--executor-fallback-effort",
@@ -661,7 +656,7 @@ class NativeRoutingTests(unittest.TestCase):
         )
 
         self.run_script(
-            "--executor-model", "gpt-5.6-sol", "--executor-effort", "high", "--apply"
+            "--executor-model", "gpt-5.6-luna", "--executor-effort", "max", "--apply"
         )
         self.assertEqual(
             json.loads(state_path.read_text(encoding="utf-8"))["executor_fallback"]["model"],
@@ -669,18 +664,23 @@ class NativeRoutingTests(unittest.TestCase):
         )
         before_invalid = state_path.read_bytes()
         before_invalid_config = self.read_fake_config()
-        collision = self.run_script(
-            "--executor-model", "gpt-5.6-terra", "--executor-effort", "high", "--apply", check=False
+        wrong_effort = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-effort",
+            "high",
+            "--apply",
+            check=False,
         )
-        self.assertEqual(collision.returncode, 2)
-        self.assertIn("fallback must differ", collision.stderr)
+        self.assertEqual(wrong_effort.returncode, 2)
+        self.assertIn("requires the exact routine Executor", wrong_effort.stderr)
         self.assertEqual(state_path.read_bytes(), before_invalid)
         self.assertEqual(self.read_fake_config(), before_invalid_config)
         agent = self.run_script(
             "--executor-agent", "executor_agent", "--apply", check=False
         )
         self.assertEqual(agent.returncode, 2)
-        self.assertIn("cannot retain or use", agent.stderr)
+        self.assertIn("requires the exact routine Executor", agent.stderr)
         self.assertEqual(state_path.read_bytes(), before_invalid)
         self.assertEqual(self.read_fake_config(), before_invalid_config)
         unlisted_primary = self.run_script(
@@ -693,12 +693,12 @@ class NativeRoutingTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(unlisted_primary.returncode, 2)
-        self.assertIn("with a saved fallback must be present", unlisted_primary.stderr)
+        self.assertIn("requires the exact routine Executor", unlisted_primary.stderr)
         self.assertEqual(state_path.read_bytes(), before_invalid)
         self.assertEqual(self.read_fake_config(), before_invalid_config)
 
         cleared = self.run_script(
-            "--executor-model", "gpt-5.6-sol", "--clear-executor-fallback", "--apply"
+            "--executor-model", "gpt-5.6-luna", "--clear-executor-fallback", "--apply"
         )
         self.assertIn("Executor fallback: none", cleared.stdout)
         self.assertIsNone(
@@ -727,9 +727,9 @@ class NativeRoutingTests(unittest.TestCase):
                 (self.home / marker).touch()
                 rejected = self.run_script(
                     "--executor-model",
-                    "gpt-5.6-sol",
+                    "gpt-5.6-luna",
                     "--executor-effort",
-                    "high",
+                    "max",
                     "--apply",
                     check=False,
                 )
@@ -806,6 +806,45 @@ class NativeRoutingTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("does not accept seat settings", result.stderr)
 
+    def test_persistent_setup_requires_exact_luna_max_without_writes(self) -> None:
+        cases = (
+            ("wrong model", ("--executor-model", "gpt-5.6-sol", "--executor-effort", "max")),
+            ("wrong effort", ("--executor-model", "gpt-5.6-luna", "--executor-effort", "high")),
+            ("custom executor", ("--executor-agent", "custom_executor")),
+        )
+        for label, arguments in cases:
+            with self.subTest(label=label):
+                rejected = self.run_script(*arguments, "--apply", check=False)
+                self.assertEqual(rejected.returncode, 2)
+                self.assertIn("requires the exact routine Executor", rejected.stderr)
+                self.assertFalse((self.home / ".fake-user-config.json").exists())
+                self.assertFalse((self.home / NATIVE.STATE_FILENAME).exists())
+
+        missing_codex = self.root / "must-not-start-for-wrong-executor"
+        rejected_before_start = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--codex-bin",
+                str(missing_codex),
+                "--executor-model",
+                "gpt-5.6-sol",
+                "--executor-effort",
+                "max",
+                "--apply",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(rejected_before_start.returncode, 2)
+        self.assertIn(
+            "requires the exact routine Executor", rejected_before_start.stderr
+        )
+        self.assertNotIn("Codex binary does not exist", rejected_before_start.stderr)
+
     def test_reserved_claude_model_ids_require_their_sealed_cli_routes(self) -> None:
         missing_codex = self.root / "must-not-start-app-server"
         for option in (
@@ -844,8 +883,11 @@ class NativeRoutingTests(unittest.TestCase):
                     )
 
         self.write_personal_agent("claude_opus_5")
-        agent = self.run_script("--executor-agent", "claude_opus_5")
-        self.assertIn("Dry run only", agent.stdout)
+        agent = self.run_script(
+            "--executor-agent", "claude_opus_5", check=False
+        )
+        self.assertEqual(agent.returncode, 2)
+        self.assertIn("requires the exact routine Executor", agent.stderr)
 
     def test_capability_probe_checks_the_complete_routing_surface(self) -> None:
         completed = subprocess.CompletedProcess([], 0, stdout="supported")
@@ -871,7 +913,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
         )
         self.assertIn("Dry run only", preview.stdout)
         self.assertFalse((self.home / ".fake-user-config.json").exists())
@@ -880,7 +922,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--apply",
         )
         self.assertIn("Native routing policy installed", applied.stdout)
@@ -890,12 +932,16 @@ class NativeRoutingTests(unittest.TestCase):
         self.assertFalse(feature["hide_spawn_agent_metadata"])
         self.assertEqual(feature["tool_namespace"], "agents")
         self.assertIn(NATIVE.MANAGED_MARKER, feature["usage_hint_text"])
+        self.assertIn(NATIVE.TWO_LANE_POLICY_MARKER, feature["usage_hint_text"])
+        self.assertIn('model = "gpt-5.6-luna", reasoning_effort = "max"', feature["usage_hint_text"])
+        self.assertIn('model = "gpt-5.6-terra", reasoning_effort = "max"', feature["usage_hint_text"])
+        self.assertIn("For hard, ambiguous, or high-risk work", feature["usage_hint_text"])
         self.assertEqual(config["unrelated"], {"keep": True})
 
         status = self.run_script("--status")
         self.assertIn("Native policy: installed and effective", status.stdout)
         self.assertIn("V2 activation: not inferred", status.stdout)
-        self.assertIn("Executor: gpt-5.6-luna@xhigh", status.stdout)
+        self.assertIn("Executor: gpt-5.6-luna@max", status.stdout)
         self.assertIn("Designer: none", status.stdout)
         self.assertIn("Advisor: none", status.stdout)
         self.assertIn("V2 tool namespace: agents", status.stdout)
@@ -909,6 +955,109 @@ class NativeRoutingTests(unittest.TestCase):
         feature = self.read_fake_config()["features"]["multi_agent_v2"]
         self.assertEqual(feature, {"max_concurrent_threads_per_session": 5})
         self.assertFalse((self.home / NATIVE.STATE_FILENAME).exists())
+
+    def test_existing_schema_six_policy_without_two_lane_marker_fails_strict_status(
+        self,
+    ) -> None:
+        self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-effort",
+            "max",
+            "--apply",
+        )
+        self.make_saved_policy_markerless()
+
+        status = self.run_script("--status", "--require-effective", check=False)
+        self.assertEqual(status.returncode, 1)
+        self.assertIn("legacy workflow active", status.stdout)
+        self.assertIn("existing state remains valid", status.stdout)
+
+        disabled = self.run_script("--disable", "--apply")
+        self.assertIn("Native routing disabled", disabled.stdout)
+
+    def test_marker_only_migration_preserves_fable_planner(self) -> None:
+        self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--planner-fable",
+            "--planner-effort",
+            "high",
+            "--apply",
+        )
+        legacy_state = self.make_saved_policy_markerless()
+
+        migrated = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-effort",
+            "max",
+            "--apply",
+        )
+
+        self.assertIn("preserved existing sealed seat(s): planner", migrated.stdout)
+        current = json.loads(
+            (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
+        )
+        self.assertEqual(current["planner"], legacy_state["planner"])
+        self.assertIsNone(current["advisor"])
+        self.assertIn(NATIVE.TWO_LANE_POLICY_MARKER, current["managed"]["mode"])
+
+    def test_marker_only_migration_preserves_opus_advisor(self) -> None:
+        self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--advisor-opus",
+            "--advisor-effort",
+            "max",
+            "--apply",
+        )
+        legacy_state = self.make_saved_policy_markerless()
+
+        migrated = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-effort",
+            "max",
+            "--apply",
+        )
+
+        self.assertIn("preserved existing sealed seat(s): advisor", migrated.stdout)
+        current = json.loads(
+            (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
+        )
+        self.assertEqual(current["advisor"], legacy_state["advisor"])
+        self.assertIsNone(current["planner"])
+        self.assertIn(NATIVE.TWO_LANE_POLICY_MARKER, current["managed"]["usage"])
+
+    def test_markerless_hints_without_state_do_not_offer_repair_or_disable(self) -> None:
+        self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--apply",
+        )
+        self.make_saved_policy_markerless()
+        (self.home / NATIVE.STATE_FILENAME).unlink()
+
+        status = self.run_script("--status", "--require-effective", check=False)
+
+        self.assertEqual(status.returncode, 1)
+        self.assertIn("managed hints found without saved state", status.stdout)
+        self.assertIn("repair and disable are unavailable", status.stdout)
+        self.assertNotIn("existing state remains valid", status.stdout)
+        repair = self.run_script("--repair", check=False)
+        self.assertEqual(repair.returncode, 2)
+        self.assertIn("requires valid saved plugin state", repair.stderr)
+        config_before_disable = (
+            self.home / ".fake-user-config.json"
+        ).read_bytes()
+        disable = self.run_script("--disable", "--apply", check=False)
+        self.assertEqual(disable.returncode, 2)
+        self.assertIn("saved restore state is missing", disable.stderr)
+        self.assertEqual(
+            (self.home / ".fake-user-config.json").read_bytes(),
+            config_before_disable,
+        )
 
     def test_direct_planner_designer_setup_status_and_require_effective(self) -> None:
         setup = self.run_script(
@@ -1045,12 +1194,12 @@ class NativeRoutingTests(unittest.TestCase):
 
         actions = (
             ("status", ("--status",)),
-            ("setup", ("--executor-model", "gpt-5.6-sol", "--apply")),
+            ("setup", ("--executor-model", "gpt-5.6-luna", "--apply")),
             ("repair", ("--repair", "--apply")),
             ("disable", ("--disable", "--apply")),
             (
                 "Fable setup",
-                ("--executor-model", "gpt-5.6-sol", "--advisor-fable", "--apply"),
+                ("--executor-model", "gpt-5.6-luna", "--advisor-fable", "--apply"),
             ),
         )
         for label, arguments in actions:
@@ -1201,9 +1350,9 @@ class NativeRoutingTests(unittest.TestCase):
 
         refused = self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
             check=False,
         )
@@ -1212,9 +1361,9 @@ class NativeRoutingTests(unittest.TestCase):
 
         self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--replace-existing-policy",
             "--apply",
         )
@@ -1230,7 +1379,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         feature = self.read_fake_config()["features"]["multi_agent_v2"]
@@ -1248,33 +1397,33 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--apply",
         )
         self.run_script("--disable", "--apply")
         self.assertEqual(self.read_fake_config(), initial)
 
-    def test_recovered_marker_without_state_can_still_be_disabled(self) -> None:
+    def test_fresh_setup_recovers_marker_without_state_before_disable(self) -> None:
         self.run_script(
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         (self.home / NATIVE.STATE_FILENAME).unlink()
         self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         self.run_script("--disable", "--apply")
@@ -1284,12 +1433,12 @@ class NativeRoutingTests(unittest.TestCase):
         self.assertFalse(feature["hide_spawn_agent_metadata"])
         self.assertEqual(feature["tool_namespace"], "agents")
 
-    def test_partial_marker_recovery_removes_the_surviving_managed_text(self) -> None:
+    def test_fresh_setup_recovers_partial_marker_before_disable(self) -> None:
         self.run_script(
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         (self.home / NATIVE.STATE_FILENAME).unlink()
@@ -1300,9 +1449,9 @@ class NativeRoutingTests(unittest.TestCase):
         )
         self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         self.run_script("--disable", "--apply")
@@ -1316,7 +1465,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         config = self.read_fake_config()
@@ -1334,9 +1483,9 @@ class NativeRoutingTests(unittest.TestCase):
         self.assertEqual(required.returncode, 1)
         update = self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
             check=False,
         )
@@ -1352,9 +1501,9 @@ class NativeRoutingTests(unittest.TestCase):
     def test_repair_restores_only_saved_managed_hints_and_keeps_state(self) -> None:
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--advisor-fable",
             "--apply",
         )
@@ -1406,9 +1555,9 @@ class NativeRoutingTests(unittest.TestCase):
     def test_repair_refuses_unmarked_or_unrelated_control_drift(self) -> None:
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         config = self.read_fake_config()
@@ -1441,9 +1590,9 @@ class NativeRoutingTests(unittest.TestCase):
     def test_repair_preserves_a_concurrent_user_edit(self) -> None:
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         config = self.read_fake_config()
@@ -1475,9 +1624,9 @@ class NativeRoutingTests(unittest.TestCase):
 
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         before_config = self.read_fake_config()
@@ -1491,9 +1640,9 @@ class NativeRoutingTests(unittest.TestCase):
     def test_repair_rolls_back_when_effective_policy_is_overridden(self) -> None:
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         config = self.read_fake_config()
@@ -1520,9 +1669,9 @@ class NativeRoutingTests(unittest.TestCase):
     def test_repair_refuses_fable_launcher_enablement_drift(self) -> None:
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--advisor-fable",
             "--apply",
         )
@@ -1548,9 +1697,9 @@ class NativeRoutingTests(unittest.TestCase):
     def test_repair_refuses_integer_substitution_for_fable_boolean(self) -> None:
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--advisor-fable",
             "--apply",
         )
@@ -1573,9 +1722,9 @@ class NativeRoutingTests(unittest.TestCase):
     def test_repair_detects_a_concurrent_saved_state_edit(self) -> None:
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         config = self.read_fake_config()
@@ -1607,9 +1756,9 @@ class NativeRoutingTests(unittest.TestCase):
         )
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         state_path = self.home / NATIVE.STATE_FILENAME
@@ -1648,9 +1797,9 @@ class NativeRoutingTests(unittest.TestCase):
         )
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         config = self.read_fake_config()
@@ -1671,9 +1820,9 @@ class NativeRoutingTests(unittest.TestCase):
         )
         self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "medium",
+            "max",
             "--apply",
         )
         config = self.read_fake_config()
@@ -1695,12 +1844,12 @@ class NativeRoutingTests(unittest.TestCase):
         )
         self.assertTrue((self.home / NATIVE.STATE_FILENAME).exists())
 
-    def test_disable_without_state_removes_only_each_proven_hint(self) -> None:
+    def test_disable_without_state_preserves_managed_and_user_hints(self) -> None:
         self.run_script(
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         (self.home / NATIVE.STATE_FILENAME).unlink()
@@ -1710,13 +1859,13 @@ class NativeRoutingTests(unittest.TestCase):
         (self.home / ".fake-user-config.json").write_text(
             json.dumps(config), encoding="utf-8"
         )
-        disabled = self.run_script("--disable", "--apply")
-        self.assertIn("1 proven managed hint string", disabled.stdout)
-        feature = self.read_fake_config()["features"]["multi_agent_v2"]
-        self.assertNotIn("multi_agent_mode_hint_text", feature)
-        self.assertEqual(feature["usage_hint_text"], "USER USAGE")
-        self.assertFalse(feature["hide_spawn_agent_metadata"])
-        self.assertEqual(feature["tool_namespace"], "agents")
+        config_before = (self.home / ".fake-user-config.json").read_bytes()
+        disabled = self.run_script("--disable", "--apply", check=False)
+        self.assertEqual(disabled.returncode, 2)
+        self.assertIn("saved restore state is missing", disabled.stderr)
+        self.assertEqual(
+            (self.home / ".fake-user-config.json").read_bytes(), config_before
+        )
 
     def test_incompatible_client_blocks_setup_but_never_disable(self) -> None:
         _, old_codex = _write_test_cli(self.root, "old-codex", FAKE_CODEX)
@@ -1724,7 +1873,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--compat-bin",
             str(old_codex),
             check=False,
@@ -1737,7 +1886,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         disabled = self.run_script(
@@ -1760,7 +1909,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         _, old_codex = _write_test_cli(self.root, "old-status-codex", FAKE_CODEX)
@@ -1779,7 +1928,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         agents = self.home / "agents"
@@ -1815,7 +1964,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         state_path = self.home / NATIVE.STATE_FILENAME
@@ -1832,7 +1981,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         state_path = self.home / NATIVE.STATE_FILENAME
@@ -1853,7 +2002,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
             check=False,
         )
@@ -1869,7 +2018,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
             check=False,
         )
@@ -1890,9 +2039,9 @@ class NativeRoutingTests(unittest.TestCase):
 
         rejected = self.run_script(
             "--executor-model",
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
             check=False,
         )
@@ -1985,7 +2134,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         effective = self.read_fake_config()
@@ -1999,9 +2148,9 @@ class NativeRoutingTests(unittest.TestCase):
 
         update = self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
             check=False,
         )
@@ -2044,7 +2193,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         ]
         stderr = io.StringIO()
@@ -2073,7 +2222,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--apply",
             check=False,
         )
@@ -2090,7 +2239,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--apply",
             check=False,
         )
@@ -2124,7 +2273,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         ]
         stderr = io.StringIO()
@@ -2147,20 +2296,21 @@ class NativeRoutingTests(unittest.TestCase):
         feature = self.read_fake_config()["features"]["multi_agent_v2"]
         self.assertIn(NATIVE.MANAGED_MARKER, feature["usage_hint_text"])
 
-    def test_custom_agent_route_and_optional_advisor(self) -> None:
-        self.write_personal_agent("codex_orchestration_executor")
+    def test_luna_executor_with_optional_custom_advisor(self) -> None:
         self.write_personal_agent("codex_orchestration_advisor")
         result = self.run_script(
-            "--executor-agent",
-            "codex_orchestration_executor",
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--executor-effort",
+            "max",
             "--advisor-agent",
             "codex_orchestration_advisor",
             "--apply",
         )
-        self.assertIn("custom agent codex_orchestration_executor", result.stdout)
+        self.assertIn("Executor: gpt-5.6-luna@max", result.stdout)
         feature = self.read_fake_config()["features"]["multi_agent_v2"]
         usage = feature["usage_hint_text"]
-        self.assertIn('agent_type = "codex_orchestration_executor"', usage)
+        self.assertIn('model = "gpt-5.6-luna"', usage)
         self.assertIn('agent_type = "codex_orchestration_advisor"', usage)
         self.assertIn("No Designer route is configured", usage)
 
@@ -2408,7 +2558,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--advisor-fable",
             "--advisor-effort",
             "max",
@@ -2433,9 +2583,9 @@ class NativeRoutingTests(unittest.TestCase):
 
         update = self.run_script(
             "--executor-model",
-            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "--executor-effort",
-            "high",
+            "max",
             "--apply",
         )
         self.assertIn("Advisor: none", update.stdout)
@@ -2450,7 +2600,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--advisor-fable",
             "--apply",
         )
@@ -2464,7 +2614,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--advisor-fable",
             "--advisor-effort",
             "ultra",
@@ -2947,7 +3097,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--advisor-fable",
             "--advisor-effort",
             "xhigh",
@@ -2966,7 +3116,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--advisor-fable",
             "--advisor-effort",
             "xhigh",
@@ -2997,7 +3147,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--executor-model",
             "gpt-5.6-luna",
             "--executor-effort",
-            "xhigh",
+            "max",
             "--advisor-fable",
             "--apply",
         )
@@ -3022,22 +3172,25 @@ class NativeRoutingTests(unittest.TestCase):
         )
 
     def test_missing_or_project_shadowed_custom_agent_is_refused(self) -> None:
+        name = "codex_orchestration_planner"
         missing = self.run_script(
-            "--executor-agent",
-            "codex_orchestration_executor",
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--planner-agent",
+            name,
             "--apply",
             check=False,
         )
         self.assertEqual(missing.returncode, 2)
         self.assertIn("must resolve to exactly one personal file", missing.stderr)
 
-        self.write_personal_agent("codex_orchestration_executor")
+        self.write_personal_agent(name)
         project_agents = self.root / ".codex" / "agents"
         project_agents.mkdir(parents=True)
         (project_agents / "shadow.toml").write_text(
             "\n".join(
                 (
-                    'name = "codex_orchestration_executor"',
+                    f'name = "{name}"',
                     'description = "Shadow"',
                     'model = "other-model"',
                     'developer_instructions = "Shadow the personal route."',
@@ -3055,8 +3208,10 @@ class NativeRoutingTests(unittest.TestCase):
                 "--codex-home",
                 str(self.home),
                 "--allow-incompatible-client",
-                "--executor-agent",
-                "codex_orchestration_executor",
+                "--executor-model",
+                "gpt-5.6-luna",
+                "--planner-agent",
+                name,
                 "--apply",
             ],
             cwd=self.root,

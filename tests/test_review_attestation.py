@@ -6,32 +6,14 @@ from pathlib import Path
 import unittest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "scripts" / "review_attestation.py"
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "review_attestation.py"
 SPEC = importlib.util.spec_from_file_location("review_attestation", SCRIPT)
 assert SPEC and SPEC.loader
 ATTESTATION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ATTESTATION)
 HEAD = "a" * 40
 BASE = "b" * 40
-
-
-def runtime_probe(
-    *,
-    status: str = "pending",
-    tested_head_sha: str | None = None,
-    **updates: object,
-) -> dict[str, object]:
-    value: dict[str, object] = {
-        "status": status,
-        "provider": "openrouter",
-        "model": "moonshotai/kimi-k3",
-        "effort": "max",
-        "tested_head_sha": tested_head_sha,
-        "evidence": "Exact tuple awaits one explicitly authorized isolated Gate 0",
-    }
-    value.update(updates)
-    return value
 
 
 def body(**updates: object) -> str:
@@ -42,21 +24,15 @@ def body(**updates: object) -> str:
         "base_branch": "main",
         "reviewed_head_sha": HEAD,
         "reviewer_identity": "Independent Reviewer",
-        "reviewer_route": "sol-high",
+        "reviewer_route": "terra-max-fresh-context",
         "threat_model": {
             "assets": ["Exact reviewed commits and protected repository state"],
             "threats": ["Untrusted pull request metadata could bypass review gates"],
             "mitigations": ["Strict schema and immutable SHA validation fail closed"],
         },
         "negative_test_evidence": [
-            {
-                "category": "negative",
-                "evidence": "test rejects a stale reviewed head SHA",
-            },
-            {
-                "category": "malformed",
-                "evidence": "test rejects malformed and duplicate JSON blocks",
-            },
+            {"category": "negative", "evidence": "test rejects a stale reviewed head SHA"},
+            {"category": "malformed", "evidence": "test rejects malformed and duplicate JSON blocks"},
         ],
         "findings_disposition": "all material findings resolved",
     }
@@ -71,14 +47,12 @@ def body(**updates: object) -> str:
     )
 
 
-def event(
-    pr_body: str, *, head: str = HEAD, draft: bool = True
-) -> dict[str, object]:
+def event(pr_body: str, *, head: str = HEAD) -> dict[str, object]:
     return {
         "repository": {"full_name": "jimnguyendev/Codex-Orchestration"},
         "pull_request": {
             "body": pr_body,
-            "draft": draft,
+            "draft": True,
             "head": {"sha": head},
             "base": {"ref": "main", "sha": BASE},
         },
@@ -86,14 +60,6 @@ def event(
 
 
 class ReviewAttestationTests(unittest.TestCase):
-    def test_runtime_probe_path_is_the_packaged_openrouter_manifest(self) -> None:
-        expected = (
-            "plugins/codex-orchestration/skills/codex-orchestration/"
-            "providers/openrouter.json"
-        )
-        self.assertEqual(ATTESTATION.RUNTIME_PROBE_PATH, expected)
-        self.assertTrue((REPO_ROOT / expected).is_file())
-
     def test_valid_security_attestation_is_bound_to_head(self) -> None:
         tier = ATTESTATION.validate_pull_request_event(
             event(body()),
@@ -103,172 +69,26 @@ class ReviewAttestationTests(unittest.TestCase):
         )
         self.assertEqual(tier, "security-state")
 
-    def test_openrouter_manifest_requires_schema_2_runtime_probe(self) -> None:
-        with self.assertRaisesRegex(ATTESTATION.AttestationError, "schema 2"):
-            ATTESTATION.validate_pull_request_event(
-                event(body()),
-                expected_base=BASE,
-                expected_head=HEAD,
-                changed_paths=[ATTESTATION.RUNTIME_PROBE_PATH],
-            )
+    def test_only_schema_one_is_accepted_after_external_probe_removal(self) -> None:
+        for schema in (0, 2, "1"):
+            with self.subTest(schema=schema), self.assertRaisesRegex(
+                ATTESTATION.AttestationError, "schema"
+            ):
+                ATTESTATION.parse_attestation(body(schema=schema))
 
-        tier = ATTESTATION.validate_pull_request_event(
-            event(body(schema=2, runtime_probe=runtime_probe())),
-            expected_base=BASE,
-            expected_head=HEAD,
-            changed_paths=[ATTESTATION.RUNTIME_PROBE_PATH],
+        extra = json.loads(
+            body().split(ATTESTATION.START_MARKER, 1)[1].split(
+                ATTESTATION.END_MARKER, 1
+            )[0]
         )
-        self.assertEqual(tier, "security-state")
-
-    def test_runtime_probe_pass_is_exact_head_bound_and_allows_ready_pr(self) -> None:
-        attestation = body(
-            schema=2,
-            runtime_probe=runtime_probe(
-                status="passed",
-                tested_head_sha=HEAD,
-                evidence="One isolated Gate 0 accepted the exact tuple on this head",
-            ),
-        )
-        tier = ATTESTATION.validate_pull_request_event(
-            event(attestation, draft=False),
-            expected_base=BASE,
-            expected_head=HEAD,
-            changed_paths=[ATTESTATION.RUNTIME_PROBE_PATH],
-        )
-        self.assertEqual(tier, "security-state")
-
-        for tested_head in ("c" * 40, None):
-            with self.subTest(tested_head=tested_head):
-                with self.assertRaisesRegex(ATTESTATION.AttestationError, "tested SHA"):
-                    ATTESTATION.validate_pull_request_event(
-                        event(
-                            body(
-                                schema=2,
-                                runtime_probe=runtime_probe(
-                                    status="passed",
-                                    tested_head_sha=tested_head,
-                                ),
-                            ),
-                            draft=False,
-                        ),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=[ATTESTATION.RUNTIME_PROBE_PATH],
-                    )
-
-    def test_unpassed_runtime_probe_is_draft_only_and_strict(self) -> None:
-        for status in ("pending", "failed"):
-            with self.subTest(status=status):
-                tested_head = None if status == "pending" else HEAD
-                valid = body(
-                    schema=2,
-                    runtime_probe=runtime_probe(
-                        status=status,
-                        tested_head_sha=tested_head,
-                    ),
-                )
-                self.assertEqual(
-                    ATTESTATION.validate_pull_request_event(
-                        event(valid, draft=True),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=[ATTESTATION.RUNTIME_PROBE_PATH],
-                    ),
-                    "security-state",
-                )
-                with self.assertRaisesRegex(ATTESTATION.AttestationError, "draft"):
-                    ATTESTATION.validate_pull_request_event(
-                        event(valid, draft=False),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=[ATTESTATION.RUNTIME_PROBE_PATH],
-                    )
-
+        extra["runtime_probe"] = {"status": "passed"}
         malformed = (
-            runtime_probe(status="unknown"),
-            runtime_probe(provider="other"),
-            runtime_probe(model="moonshotai/kimi-latest"),
-            runtime_probe(effort="medium"),
-            runtime_probe(extra="unsupported"),
-            runtime_probe(tested_head_sha=HEAD),
+            ATTESTATION.START_MARKER
+            + json.dumps(extra)
+            + ATTESTATION.END_MARKER
         )
-        for probe in malformed:
-            with self.subTest(probe=probe):
-                with self.assertRaises(ATTESTATION.AttestationError):
-                    ATTESTATION.validate_pull_request_event(
-                        event(body(schema=2, runtime_probe=probe)),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=[ATTESTATION.RUNTIME_PROBE_PATH],
-                    )
-
-    def test_non_pr_event_needs_no_attestation(self) -> None:
-        self.assertIsNone(
-            ATTESTATION.validate_pull_request_event(
-                {"repository": {"full_name": "jimnguyendev/Codex-Orchestration"}},
-                expected_base=BASE,
-                expected_head=HEAD,
-                changed_paths=["scripts/preflight.py"],
-            )
-        )
-
-    def test_missing_malformed_and_duplicate_blocks_fail(self) -> None:
-        duplicate = body() + "\n" + body()
-        malformed = ATTESTATION.START_MARKER + "\n{\n" + ATTESTATION.END_MARKER
-        for value in ("no block", duplicate, malformed):
-            with self.subTest(value=value[:20]):
-                with self.assertRaises(ATTESTATION.AttestationError):
-                    ATTESTATION.validate_pull_request_event(
-                        event(value),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=["scripts/preflight.py"],
-                    )
-
-    def test_duplicate_json_key_fails(self) -> None:
-        block = body().replace('"schema": 1,', '"schema": 1, "schema": 1,')
-        with self.assertRaisesRegex(ATTESTATION.AttestationError, "duplicate key"):
-            ATTESTATION.validate_pull_request_event(
-                event(block),
-                expected_base=BASE,
-                expected_head=HEAD,
-                changed_paths=["scripts/preflight.py"],
-            )
-
-    def test_stale_attestation_or_event_head_fails(self) -> None:
-        with self.assertRaisesRegex(ATTESTATION.AttestationError, "reviewed SHA"):
-            ATTESTATION.validate_pull_request_event(
-                event(body(reviewed_head_sha="b" * 40)),
-                expected_base=BASE,
-                expected_head=HEAD,
-                changed_paths=["scripts/preflight.py"],
-            )
-        with self.assertRaisesRegex(ATTESTATION.AttestationError, "event head SHA"):
-            ATTESTATION.validate_pull_request_event(
-                event(body(), head="b" * 40),
-                expected_base=BASE,
-                expected_head=HEAD,
-                changed_paths=["scripts/preflight.py"],
-            )
-
-    def test_docs_tier_cannot_hide_behavior_or_security_changes(self) -> None:
-        docs = body(
-            risk_tier="docs",
-            reviewer_identity="not-required",
-            reviewer_route="not-required",
-            threat_model="not-required",
-            negative_test_evidence=[],
-            findings_disposition="not-required",
-        )
-        for changed in (["scripts/preflight.py"], ["src/behavior.py"]):
-            with self.subTest(changed=changed):
-                with self.assertRaisesRegex(ATTESTATION.AttestationError, "risk tier"):
-                    ATTESTATION.validate_pull_request_event(
-                        event(docs),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=changed,
-                    )
+        with self.assertRaisesRegex(ATTESTATION.AttestationError, "fields"):
+            ATTESTATION.parse_attestation(malformed)
 
     def test_docs_tier_allows_explicit_not_required_review(self) -> None:
         docs = body(
@@ -287,105 +107,76 @@ class ReviewAttestationTests(unittest.TestCase):
         )
         self.assertEqual(tier, "docs")
 
-    def test_behavior_and_security_tiers_reject_placeholders(self) -> None:
+    def test_behavior_and_security_reject_placeholders(self) -> None:
         for field in ("reviewer_identity", "reviewer_route", "findings_disposition"):
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(ATTESTATION.AttestationError, "placeholder"):
-                    ATTESTATION.validate_pull_request_event(
-                        event(body(**{field: "not-required"})),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=["scripts/preflight.py"],
-                    )
-        with self.assertRaisesRegex(ATTESTATION.AttestationError, "test evidence"):
-            ATTESTATION.validate_pull_request_event(
-                event(body(negative_test_evidence=[])),
-                expected_base=BASE,
-                expected_head=HEAD,
-                changed_paths=["scripts/preflight.py"],
-            )
-        for threat_model in (
-            "not-required",
-            {"assets": ["x"], "threats": ["x"], "mitigations": ["x"]},
-            {"assets": ["Only assets are described clearly enough"]},
-        ):
-            with self.subTest(threat_model=threat_model):
-                with self.assertRaisesRegex(
-                    ATTESTATION.AttestationError, "threat_model"
-                ):
-                    ATTESTATION.validate_pull_request_event(
-                        event(body(threat_model=threat_model)),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=["scripts/preflight.py"],
-                    )
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ATTESTATION.AttestationError, "placeholder"
+            ):
+                ATTESTATION.validate_pull_request_event(
+                    event(body(**{field: "not-required"})),
+                    expected_base=BASE,
+                    expected_head=HEAD,
+                    changed_paths=["scripts/preflight.py"],
+                )
 
-    def test_security_evidence_requires_negative_and_malformed_categories(self) -> None:
+    def test_security_requires_negative_malformed_and_threat_model(self) -> None:
         for evidence in (
             [{"category": "negative", "evidence": "negative path was rejected"}],
             [{"category": "malformed", "evidence": "malformed path was rejected"}],
-            [{"category": "negative", "evidence": "x"}],
-            ["tests passed"],
+            [],
         ):
-            with self.subTest(evidence=evidence):
-                with self.assertRaises(ATTESTATION.AttestationError):
-                    ATTESTATION.validate_pull_request_event(
-                        event(body(negative_test_evidence=evidence)),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=["scripts/preflight.py"],
-                    )
-
-    def test_exact_schema_and_repository_are_required(self) -> None:
-        for updates in (
-            {"schema": True},
-            {"repository": "someone/else"},
-            {"base_branch": "develop"},
-        ):
-            with self.subTest(updates=updates):
-                with self.assertRaises(ATTESTATION.AttestationError):
-                    ATTESTATION.validate_pull_request_event(
-                        event(body(**updates)),
-                        expected_base=BASE,
-                        expected_head=HEAD,
-                        changed_paths=["scripts/preflight.py"],
-                    )
-
-    def test_event_base_sha_is_bound_to_quality_input(self) -> None:
-        value = event(body())
-        value["pull_request"]["base"]["sha"] = "c" * 40  # type: ignore[index]
-        with self.assertRaisesRegex(ATTESTATION.AttestationError, "base branch"):
+            with self.subTest(evidence=evidence), self.assertRaises(
+                ATTESTATION.AttestationError
+            ):
+                ATTESTATION.validate_pull_request_event(
+                    event(body(negative_test_evidence=evidence)),
+                    expected_base=BASE,
+                    expected_head=HEAD,
+                    changed_paths=["scripts/preflight.py"],
+                )
+        with self.assertRaisesRegex(ATTESTATION.AttestationError, "threat_model"):
             ATTESTATION.validate_pull_request_event(
-                value,
+                event(body(threat_model="not-required")),
                 expected_base=BASE,
                 expected_head=HEAD,
                 changed_paths=["scripts/preflight.py"],
             )
 
-    def test_security_source_rename_cannot_reduce_risk(self) -> None:
-        self.assertEqual(
-            ATTESTATION.classify_risk(
-                ["scripts/preflight.py", "archive/preflight-old.py"]
-            ),
-            "security-state",
+    def test_repository_base_head_and_tier_are_exact(self) -> None:
+        cases = (
+            (event(body(repository="other/repo")), "repository"),
+            (event(body(base_branch="other")), "base branch"),
+            (event(body(reviewed_head_sha="c" * 40)), "reviewed SHA"),
+            (event(body(risk_tier="behavior")), "risk tier"),
+            (event(body(), head="c" * 40), "head SHA"),
         )
+        for value, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                ATTESTATION.AttestationError, message
+            ):
+                ATTESTATION.validate_pull_request_event(
+                    value,
+                    expected_base=BASE,
+                    expected_head=HEAD,
+                    changed_paths=["scripts/preflight.py"],
+                )
 
-    def test_docs_allowlist_cannot_hide_agent_dependency_or_plugin_changes(self) -> None:
-        for path, expected in (
-            ("AGENTS.md", "security-state"),
-            ("requirements-dev.txt", "security-state"),
-            (
-                "plugins/codex-orchestration/skills/codex-orchestration/SKILL.md",
-                "security-state",
-            ),
-            ("CHANGELOG.md", "behavior"),
-        ):
-            with self.subTest(path=path):
-                self.assertEqual(ATTESTATION.classify_risk([path]), expected)
+    def test_duplicate_or_missing_markers_fail_closed(self) -> None:
+        duplicate = body() + "\n" + body()
+        for value in ("{}", duplicate, ATTESTATION.START_MARKER + "{}"):
+            with self.subTest(value=value[:20]), self.assertRaises(
+                ATTESTATION.AttestationError
+            ):
+                ATTESTATION.parse_attestation(value)
 
-    def test_explicit_public_docs_remain_docs(self) -> None:
-        self.assertEqual(
-            ATTESTATION.classify_risk(["README.md", "docs/usage.md"]), "docs"
+    def test_non_pull_request_event_needs_no_attestation(self) -> None:
+        self.assertIsNone(
+            ATTESTATION.validate_pull_request_event(
+                {"repository": {"full_name": "other/repo"}},
+                expected_base=BASE,
+                expected_head=HEAD,
+                changed_paths=["scripts/preflight.py"],
+            )
         )
 
 

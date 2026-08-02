@@ -1,30 +1,45 @@
 # Codex Orchestration — Hướng dẫn tiếng Việt
 
-Codex Orchestration giúp gán model cho từng vai trò Planner, Advisor, Designer và Executor, nhưng model bạn chọn khi mở task vẫn là Root và giữ quyền quyết định cuối cùng.
+Codex Orchestration giữ model đang được chọn trong task làm Root và chỉ chia phần
+implementation sang hai lane rõ ràng:
 
-Đây là fork được duy trì độc lập tại `jimnguyendev/Codex-Orchestration`, dựa trên project gốc của CJ Zafir theo giấy phép MIT. Bản fork giữ các cập nhật upstream về Claude Fable 5, Claude Opus 5 và bổ sung contract Executor fallback, route binding, compare-and-swap cùng file locking trên Windows.
+- **GPT-5.6 Luna Max** cho việc routine, phạm vi hẹp, yêu cầu đã rõ và rủi ro thấp.
+- **GPT-5.6 Terra Max** cho việc khó, còn mơ hồ hoặc rủi ro cao.
 
-## Hiểu đúng các vai trò
+Root vẫn chịu trách nhiệm hiểu yêu cầu, quyết định kiến trúc, tích hợp thay đổi, chạy
+kiểm tra và trả kết quả cuối. Plugin không tự động tạo Planner, Advisor, Designer hay
+vòng final review cho mọi task.
 
-- Root: nhận yêu cầu, quyết định có cần lập kế hoạch hay chia việc không, hợp nhất thay đổi, chạy kiểm tra và trả kết quả cho người dùng.
-- Planner: tạo kế hoạch đầu tiên và sửa kế hoạch khi Advisor tìm thấy thiếu sót.
-- Advisor: review độc lập, trả `PLAN_APPROVED` hoặc `PLAN_REVISE`.
-- Designer: tạo design handoff cho UI, UX hoặc luồng tương tác; không tự sửa implementation nếu Root không giao rõ artifact.
-- Executor: thực hiện một packet có phạm vi, file sở hữu, điều kiện dừng và tiêu chí nghiệm thu rõ ràng.
+Đây là fork được duy trì độc lập tại
+[`jimnguyendev/Codex-Orchestration`](https://github.com/jimnguyendev/Codex-Orchestration),
+dựa trên project gốc của CJ Zafir và tiếp tục dùng giấy phép MIT.
 
-Planner, Advisor và Designer đều là vai trò tùy chọn. Plugin không tạo thêm orchestrator và không ép mọi task phải spawn agent.
+## Cách chọn lane
 
-## Yêu cầu trước khi cài
+| Dạng công việc | Lane |
+| --- | --- |
+| Sửa cơ học, wiring, CRUD, test thẳng, bug cục bộ | Luna Max |
+| Security/auth/state, concurrency, migration, debug khó, refactor rộng, legacy contract chưa rõ | Terra Max |
 
-- Codex Desktop hoặc Codex client tương thích plugin và multi-agent v2.
-- Python 3.11 trở lên để chạy configurator.
-- Claude Code CLI chính thức nếu dùng Claude Fable 5 hoặc Claude Opus 5.
-- Quyền truy cập model trực tiếp phải tồn tại trên cùng provider với Root.
-- Model ngoài provider của Root cần provider tương thích đã được cấu hình và xác thực, cùng custom agent pin `model_provider`.
+Nếu chưa chắc, chọn Terra. Việc quá nhỏ nên để Root làm trực tiếp vì chi phí viết và
+kiểm tra handoff có thể lớn hơn phần việc.
 
-## Cài plugin từ fork
+Worker chỉ nhận packet gồm năm phần: mục tiêu, file sở hữu, contract, điều kiện hoàn
+thành và cách kiểm tra. Child khác model dùng `fork_turns=none`, không nhận toàn bộ hội
+thoại của Root. Đây là cold handoff có giới hạn, không phải same-session prewalk của
+Elves và không chuyển KV cache giữa model.
 
-Chạy trong terminal tin cậy:
+Sau khi worker xong, Root phải xem diff thật và chạy lại kiểm tra liên quan. Báo cáo của
+worker không phải bằng chứng cuối cùng.
+
+Tài liệu đầy đủ bằng tiếng Việt, gồm sơ đồ kiến trúc, same-session prewalk, phép tính
+chi phí/cache, threat model và hướng dẫn từng bước, nằm tại
+[`docs/README.md`](docs/README.md).
+
+## Cài đặt
+
+Yêu cầu Codex client hỗ trợ plugin và multi-agent v2. Python 3.11+ chỉ cần cho persistent
+setup tùy chọn.
 
 ```bash
 codex plugin marketplace add jimnguyendev/Codex-Orchestration
@@ -32,163 +47,90 @@ codex plugin add codex-orchestration@codex-orchestration
 codex plugin list --json
 ```
 
-Inventory cuối phải cho thấy plugin đang enabled, source là Git marketplace `https://github.com/jimnguyendev/Codex-Orchestration`, và version là `0.9.4` hoặc mới hơn.
+Inventory phải cho thấy plugin enabled, source là Git marketplace chính thức của fork,
+và version 0.10.0 trở lên. Sau khi cài hoặc update, hãy thoát hoàn toàn Codex rồi mở lại
+và tạo task mới.
 
-Sau khi cài hoặc nâng cấp, hãy thoát hoàn toàn Codex Desktop, mở lại và tạo task mới. Task đang mở không thể hot-reload skill, custom agent hay MCP bridge.
-
-## Thiết lập nhanh được khuyến nghị
-
-Dùng Claude Fable 5 làm Planner, Sol làm Advisor và Luna làm Executor:
+Ví dụ sử dụng:
 
 ```text
-$codex-orchestration:codex-orchestration setup planner: Claude Fable 5 High, advisor: GPT-5.6 Sol High, executor: GPT-5.6 Luna Extra High
+$codex-orchestration:codex-orchestration route implementation này
+$codex-orchestration:codex-orchestration dùng Luna Max vì task này routine
+$codex-orchestration:codex-orchestration dùng Terra Max vì migration này rủi ro cao
 ```
 
-Fable mặc định `High`. Các effort hợp lệ là `Low`, `Medium`, `High`, `XHigh`, `Max`; `Ultra` được chuẩn hóa thành `Max` vì Claude Code dùng giá trị hiệu lực `max`.
+## Persistent setup là tùy chọn
 
-Chỉ cấu hình Executor:
+Task-local routing là mặc định. Persistent setup lưu Luna làm routine route và sinh
+thêm Terra Max hard/risky lane trong managed policy. Phiên bản 0.10 chỉ nhận đúng Luna
+Max làm persistent Executor; route Executor tùy ý/custom chỉ dùng task-local:
 
 ```text
-$codex-orchestration:codex-orchestration setup executor: GPT-5.6 Luna Extra High
+$codex-orchestration:codex-orchestration setup executor: GPT-5.6 Luna Max
 ```
 
-Thêm Designer cùng provider:
-
-```text
-$codex-orchestration:codex-orchestration setup designer: GPT-5.6 Sol High, executor: GPT-5.6 Luna Extra High
-```
-
-Dùng Claude Opus 5 làm Planner:
-
-```text
-$codex-orchestration:codex-orchestration setup planner: Claude Opus 5 High, advisor: GPT-5.6 Sol High, executor: GPT-5.6 Luna Extra High
-```
-
-Claude Opus 5 yêu cầu Claude Code 2.1.219 trở lên. Fable và Opus dùng first-party Claude Code login hiện có; không đưa Anthropic API key vào Codex hoặc cuộc trò chuyện.
-
-Chỉ một bundled Claude subscription seat được phép tồn tại trong policy đã lưu. Vì vậy không cấu hình đồng thời Fable/Opus cho cả Planner và Advisor; hai vai trò review phải độc lập.
-
-## Cấu hình Executor fallback
-
-Schema 6 giữ fallback hẹp của fork:
-
-```text
-$codex-orchestration:codex-orchestration setup executor: GPT-5.6 Luna Extra High, executor fallback: GPT-5.6 Terra High
-```
-
-Fallback chỉ được dùng đúng một lần khi tất cả điều kiện sau cùng đúng:
-
-1. Lệnh spawn ngay trước đó dùng primary Executor đã lưu.
-2. Kết quả trực tiếp không có child ID hoặc agent provenance.
-3. Lỗi có đúng dạng primary là `Unknown model`.
-4. Danh sách model khả dụng chứa chính xác fallback đã lưu.
-5. Packet, task name, agent type, service tier và `fork_turns="none"` được giữ nguyên; chỉ model và effort thay đổi.
-
-Không fallback khi gặp lỗi permission, authentication, provider, rate limit, timeout, cancel, post-child, task failure, mixed error hoặc kết quả mơ hồ. Nếu người dùng chỉ định Executor cho task hiện tại hoặc nói `no subagents`, cả primary và fallback đã lưu đều bị vô hiệu cho task đó.
-
-## Kiểm tra route thật sự dùng được
-
-Xem policy và compatibility của workspace:
+Các thao tác quản lý:
 
 ```text
 $codex-orchestration:codex-orchestration status
-```
-
-Phân biệt rõ các mức bằng chứng:
-
-- `native policy installed`: state và config đã khớp.
-- `pinned custom agent available`: agent đã load nhưng chưa chạy.
-- `route accepted`: công cụ spawn đã chấp nhận route được yêu cầu.
-- `used and confirmed`: client có metadata cơ học xác nhận model/provider/effort runtime.
-
-Status không chứng minh route đang callable trong task hiện tại và không chứng minh fallback đang đủ điều kiện. Với custom agent hoặc route quan trọng, mở task mới và giao một packet read-only kiểm tra Git HEAD/worktree trước khi giao quyền sửa code.
-
-## Tạo custom role
-
-Tạo role trong project hiện tại:
-
-```text
-$codex-orchestration:codex-orchestration create project role: researcher
-```
-
-Project role nằm trong `.codex/agents/`; personal role nằm trong `~/.codex/agents/`. File mới chỉ được load ở task mới. Nếu project và personal có cùng tên, project có thể shadow personal; status sẽ fail closed thay vì đoán route.
-
-Một packet Executor tốt nên có:
-
-- mục tiêu và phần không được thay đổi;
-- file/module thuộc quyền sở hữu;
-- dữ kiện repo cần thiết;
-- dependency và điều kiện dừng;
-- tiêu chí nghiệm thu;
-- kiểm tra nhỏ nhất cần chạy;
-- format handoff gồm trạng thái, file đổi, checks và rủi ro còn lại.
-
-## External Model và Kimi K3
-
-Câu hỏi sau chỉ cho phép discovery read-only:
-
-```text
-is Kimi available to use as Designer?
-```
-
-Kết quả phải tách bốn trạng thái: supported, configured, locally ready và callable now. Discovery không cho phép tạo provider, nhập credential, chạy billable Gate 0 hoặc ghi config.
-
-Khi cần authentication cho external provider, nhập key trong hidden local prompt của terminal tin cậy. Không dán key vào chat, command argument, file `.env`, Git, prompt, registry hoặc log.
-
-## Update, repair và disable
-
-Chỉ nâng cấp plugin này từ canonical marketplace:
-
-```text
-$codex-orchestration:codex-orchestration --update
-```
-
-Sau update phải restart Codex Desktop và tạo task mới.
-
-Nếu status báo drift chỉ giới hạn ở managed mode/usage hint:
-
-```text
 $codex-orchestration:codex-orchestration repair
-```
-
-Repair chỉ phục hồi byte đã lưu của hai hint đó qua App Server CAS. Nó không thay route, restore snapshot, MCP launcher, credential, chat hay session.
-
-Tắt native routing đã lưu:
-
-```text
+$codex-orchestration:codex-orchestration --update
 $codex-orchestration:codex-orchestration disable
 ```
 
-`disable` phục hồi các giá trị routing trước setup và xóa state do plugin sở hữu sau khi validation thành công. Nó không gỡ plugin và không xóa custom role do người dùng sở hữu.
+Setup, repair và disable đều preview trước khi ghi. Configurator dùng Codex App Server
+compare-and-swap, giữ nguyên setting không liên quan và lưu chính xác dữ liệu để restore.
+Status chỉ chứng minh policy/state khớp nhau, không chứng minh child route đang callable.
+Sau khi upgrade policy được tạo trước 0.10, strict status sẽ báo `legacy workflow
+active`; hãy chạy một fresh setup hoặc disable policy cũ trước khi dựa vào hai lane mới.
+Marker-only migration giữ nguyên Fable/Opus seat hợp lệ nếu fresh setup không nhắc lại
+seat đó. Nếu saved state đã mất, status phải báo repair và disable không còn dùng được.
 
-## Gỡ cài đặt an toàn
+## Fable và Opus vẫn được giữ
 
-1. Dùng version hiện tại để chạy `disable`.
-2. Xác nhận native policy đã inactive.
-3. Gỡ plugin và marketplace bằng native Codex plugin manager.
-4. Review riêng các file custom role do người dùng tạo; không xóa hàng loạt.
-5. Restart Codex Desktop.
+Claude Fable 5 và Claude Opus 5 vẫn là route Planner hoặc Advisor tùy chọn. Chúng dùng
+Claude Code CLI chính thức, login first-party hiện có, không dùng tools, không giữ
+session và kiểm tra đúng model runtime. Plugin không tự gọi hai route này và không dùng
+chúng làm implementation worker.
 
-Nếu đã gỡ plugin trước khi disable, cài lại đúng version hiện tại, disable sạch rồi mới gỡ lần nữa. Trước khi downgrade xuống version không hiểu schema đã lưu, luôn disable bằng version mới trước.
+```text
+$codex-orchestration:codex-orchestration setup planner: Claude Fable 5 High, executor: GPT-5.6 Luna Max
+$codex-orchestration:codex-orchestration setup advisor: Claude Opus 5 High, executor: GPT-5.6 Luna Max
+```
 
-Upstream 0.9.0–0.9.3 đã dùng schema 5 cho state chứa Opus, trong khi fork này đã dùng schema 5 cho fallback và route binding. Nếu chuyển một installation đang active từ upstream sang fork, hãy chạy `disable` bằng bản upstream trước, sau đó cài fork và tạo policy schema 6 mới. Validator sẽ không đoán giữa hai shape schema 5 trùng số nhưng khác contract.
+Chỉ một bundled Claude subscription seat được lưu. Opus yêu cầu Claude Code 2.1.219+
+
+## Phần đã gỡ ở 0.10.0
+
+Kimi K3, OpenRouter setup, credential enrollment, paid Gate 0 probe và toàn bộ generic
+External Model lifecycle đã được gỡ. Kimi là API-model route duy nhất được bundle và
+là nguồn tạo ra phần lớn nhánh hướng dẫn, runtime và test không còn cần thiết.
+
+Saved Executor fallback cũ vẫn được đọc để tương thích state, nhưng không còn được dùng
+như cơ chế phân loại Luna/Terra. Task mới chọn lane ngay trước khi spawn.
+
+## Token, chi phí và tốc độ
+
+Không có một phần trăm tiết kiệm cố định. Cần tính tổng model-weighted input/output,
+context bị lặp, reasoning output, tool call, retry, latency và rework do chất lượng.
+
+Giảm reasoning level của Root có thể giữ cơ hội cache cùng model và giảm reasoning.
+Luna vẫn có thể rẻ hơn sau cold handoff nhờ đơn giá thấp hơn. Nên benchmark trên task
+thật và kiểm tra bảng giá hiện tại trước khi công bố con số cụ thể.
 
 ## Phát triển và kiểm tra
 
-Phản hồi nhanh:
-
 ```bash
 python3 scripts/preflight.py quick
-```
-
-Gate local đầy đủ trước handoff:
-
-```bash
 python3 scripts/preflight.py full
 ```
 
-Mỗi behavior fix cần regression test chính xác. Mọi thay đổi plugin payload phải tăng SemVer. Thay đổi security hoặc state cần threat model, test malformed/negative path và final-tree review mới, gắn với đúng HEAD SHA. Kết quả local chỉ là `PARTIAL`; protected checks trên hosted CI mới là nguồn xác nhận cuối cùng.
+Mỗi behavior fix cần regression test chính xác. Thay đổi plugin payload phải tăng
+SemVer. Thay đổi security/state cần threat model, test negative/malformed và final-tree
+review mới gắn với đúng head SHA. Kết quả local là `PARTIAL`; protected checks trên CI
+mới là nguồn xác nhận cuối cùng.
 
-## Giấy phép và ghi nhận
+## Giấy phép
 
-Project gốc do CJ Zafir phát triển. Fork này được duy trì độc lập và tiếp tục phân phối theo MIT license; xem [LICENSE](LICENSE).
+Project gốc do CJ Zafir phát triển. Fork này tiếp tục phát hành theo giấy phép MIT;
+xem [LICENSE](LICENSE).

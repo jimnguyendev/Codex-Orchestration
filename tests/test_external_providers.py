@@ -6,106 +6,65 @@ import sys
 import unittest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = (
-    REPO_ROOT
-    / "plugins"
-    / "codex-orchestration"
-    / "skills"
-    / "codex-orchestration"
-    / "scripts"
-)
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "plugins" / "codex-orchestration" / "skills" / "codex-orchestration" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import external_providers as PROVIDERS  # noqa: E402
 
 
-class ExternalProviderTests(unittest.TestCase):
-    def test_bundled_openrouter_and_claude_templates_are_strict(self) -> None:
-        openrouter = PROVIDERS.load_provider("openrouter")
+class SubscriptionProviderTests(unittest.TestCase):
+    def test_only_sealed_claude_templates_are_bundled(self) -> None:
+        provider_dir = SCRIPTS.parent / "providers"
+        self.assertEqual(
+            {path.name for path in provider_dir.glob("*.json")},
+            {"claude-fable.json", "claude-opus.json"},
+        )
         fable = PROVIDERS.load_provider("claude-fable")
         opus = PROVIDERS.load_provider("claude-opus")
-        self.assertEqual(openrouter["wire_api"], "responses")
-        self.assertEqual(openrouter["base_url"], "https://openrouter.ai/api/v1")
-        self.assertEqual(
-            openrouter["models"]["moonshotai/kimi-k3"]["context_window"],
-            1_048_576,
-        )
-        self.assertEqual(openrouter["version"], 2)
-        self.assertFalse(openrouter["experimental"])
-        self.assertFalse(openrouter["qualified"])
-        self.assertIn(
-            "https://openrouter.ai/moonshotai/kimi-k3",
-            openrouter["models"]["moonshotai/kimi-k3"]["capability_source"],
-        )
-        self.assertEqual(fable["lane"], "subscription")
-        self.assertEqual(fable["runtime_identity"], "cli_metadata")
-        self.assertEqual(opus["lane"], "subscription")
-        self.assertEqual(opus["runtime_identity"], "cli_metadata")
+        for provider in (fable, opus):
+            self.assertEqual(provider["lane"], "subscription")
+            self.assertEqual(provider["auth"], "first_party_cli")
+            self.assertEqual(provider["runtime_identity"], "cli_metadata")
+            self.assertEqual(
+                provider["subscription_adapter"]["module"],
+                "fable_advisor_mcp",
+            )
+        self.assertEqual(set(fable["models"]), {"claude-fable-5"})
         self.assertEqual(set(opus["models"]), {"claude-opus-5"})
-        self.assertEqual(
-            opus["models"]["claude-opus-5"]["supported_efforts"],
-            ["low", "medium", "high", "xhigh", "max"],
-        )
 
-    def test_kimi_effort_is_explicit_and_never_clamped(self) -> None:
-        provider = PROVIDERS.load_provider("openrouter")
-        model = "moonshotai/kimi-k3"
-        self.assertEqual(PROVIDERS.resolve_effort(provider, model, "auto"), "max")
-        self.assertEqual(PROVIDERS.resolve_effort(provider, model, "max"), "max")
-        for effort in ("xhigh", "high", "medium", "low", "minimal", "none"):
-            with self.subTest(effort=effort):
-                with self.assertRaisesRegex(PROVIDERS.ProviderError, "unsupported"):
-                    PROVIDERS.resolve_effort(provider, model, effort)
+    def test_subscription_effort_is_exact(self) -> None:
+        provider = PROVIDERS.load_provider("claude-opus")
+        model = "claude-opus-5"
+        self.assertEqual(PROVIDERS.resolve_effort(provider, model, "auto"), "high")
+        for effort in ("low", "medium", "high", "xhigh", "max"):
+            self.assertEqual(PROVIDERS.resolve_effort(provider, model, effort), effort)
+        with self.assertRaisesRegex(PROVIDERS.ProviderError, "unsupported"):
+            PROVIDERS.resolve_effort(provider, model, "minimal")
         with self.assertRaisesRegex(PROVIDERS.ProviderError, "not in provider"):
-            PROVIDERS.resolve_effort(provider, "moonshotai/missing", "max")
+            PROVIDERS.resolve_effort(provider, "claude-other", "high")
 
-    def test_official_but_per_install_unqualified_provider_fails_closed(self) -> None:
-        provider = PROVIDERS.load_provider("openrouter")
-        with self.assertRaisesRegex(PROVIDERS.ProviderError, "Gate 0"):
-            PROVIDERS.require_qualified(provider)
-
-    def test_unsafe_endpoints_and_template_extensions_are_rejected(self) -> None:
-        baseline = PROVIDERS.load_provider("openrouter")
-        bad_urls = (
-            "http://openrouter.ai/api/v1",
-            "https://user:pass@openrouter.ai/api/v1",
-            "https://openrouter.ai/api/v1?token=x",
-            "https://openrouter.ai/api/v1#fragment",
-            "file:///tmp/provider",
-        )
-        for url in bad_urls:
-            value = deepcopy(baseline)
-            value["base_url"] = url
-            with self.subTest(url=url):
-                with self.assertRaises(PROVIDERS.ProviderError):
-                    PROVIDERS.validate_provider(value, expected_id="openrouter")
-
-        value = deepcopy(baseline)
-        value["auth_command"] = "/tmp/project-helper"
-        with self.assertRaises(PROVIDERS.ProviderError):
-            PROVIDERS.validate_provider(value, expected_id="openrouter")
-
-    def test_provider_filename_id_and_model_shapes_are_bound(self) -> None:
-        baseline = PROVIDERS.load_provider("openrouter")
-        with self.assertRaisesRegex(PROVIDERS.ProviderError, "do not match"):
-            PROVIDERS.validate_provider(baseline, expected_id="other")
-
-        value = deepcopy(baseline)
-        model = value["models"]["moonshotai/kimi-k3"]
-        model["supported_efforts"] = ["max", "max"]
-        with self.assertRaisesRegex(PROVIDERS.ProviderError, "efforts"):
-            PROVIDERS.validate_provider(value, expected_id="openrouter")
-
-        value = deepcopy(baseline)
-        value["models"]["moonshotai/kimi-k3"][
-            "auto_compact_token_limit"
-        ] = 1_048_576
-        with self.assertRaisesRegex(PROVIDERS.ProviderError, "below"):
-            PROVIDERS.validate_provider(value, expected_id="openrouter")
+    def test_subscription_manifest_shape_fails_closed(self) -> None:
+        provider = PROVIDERS.load_provider("claude-fable")
+        for mutate in (
+            lambda value: value.update({"lane": "native"}),
+            lambda value: value.update({"auth": "secure_store"}),
+            lambda value: value.update({"base_url": "https://example.invalid/v1"}),
+            lambda value: value.update({"qualified": False}),
+            lambda value: value["subscription_adapter"].update(
+                {"module": "untrusted_bridge"}
+            ),
+            lambda value: value["models"]["claude-fable-5"].update(
+                {"supported_efforts": ["high", "high"]}
+            ),
+        ):
+            value = deepcopy(provider)
+            mutate(value)
+            with self.assertRaises(PROVIDERS.ProviderError):
+                PROVIDERS.validate_provider(value, expected_id="claude-fable")
 
     def test_provider_loader_cannot_escape_bundled_directory(self) -> None:
-        for provider_id in ("../outside", "/tmp/outside", "Bad.Provider", ""):
+        for provider_id in ("../outside", "/tmp/outside", "openrouter", "Bad.Provider", ""):
             with self.subTest(provider_id=provider_id):
                 with self.assertRaises(PROVIDERS.ProviderError):
                     PROVIDERS.load_provider(provider_id)

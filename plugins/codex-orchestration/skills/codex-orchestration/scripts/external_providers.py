@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Strict bundled provider definitions for external Codex roles."""
+"""Strict bundled definitions for sealed Claude subscription roles."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import re
 from typing import Any
-from urllib.parse import urlsplit
 
 
 SCHEMA = 1
@@ -56,19 +54,6 @@ def _require(condition: bool, detail: str) -> None:
         raise ProviderError(detail)
 
 
-def _endpoint(value: object, *, native: bool) -> str | None:
-    if not native:
-        _require(value is None, "subscription provider cannot define an API base URL")
-        return None
-    _require(type(value) is str, "native provider base URL must be a string")
-    parsed = urlsplit(value)
-    _require(parsed.scheme == "https", "native provider base URL must use HTTPS")
-    _require(bool(parsed.hostname), "native provider host is missing")
-    _require(parsed.username is None and parsed.password is None, "provider URL cannot contain credentials")
-    _require(not parsed.query and not parsed.fragment, "provider URL cannot contain query or fragment")
-    return value.rstrip("/")
-
-
 def validate_provider(value: Any, *, expected_id: str | None = None) -> dict[str, Any]:
     _require(type(value) is dict and set(value) == _TOP_KEYS, "provider template shape is unsupported")
     _require(type(value["schema"]) is int and value["schema"] == SCHEMA, "provider schema is unsupported")
@@ -78,45 +63,36 @@ def validate_provider(value: Any, *, expected_id: str | None = None) -> dict[str
         _require(provider_id == expected_id, "provider filename and ID do not match")
     _require(type(value["version"]) is int and value["version"] > 0, "provider version is invalid")
     _require(type(value["name"]) is str and bool(value["name"].strip()), "provider name is invalid")
-    lane = value["lane"]
-    _require(lane in {"native", "subscription"}, "provider lane is invalid")
-    _require(type(value["experimental"]) is bool, "experimental must be boolean")
-    _require(type(value["qualified"]) is bool, "qualified must be boolean")
-    base_url = _endpoint(value["base_url"], native=lane == "native")
-    if lane == "native":
-        _require(value["wire_api"] == "responses", "native provider must use Responses")
-        _require(value["auth"] in {"secure_store", "user_helper", "none"}, "native auth kind is unsupported")
-        _require(
-            value["subscription_adapter"] is None,
-            "native provider cannot define a subscription adapter",
-        )
-    else:
-        _require(value["wire_api"] is None, "subscription provider cannot define a wire API")
-        _require(value["auth"] == "first_party_cli", "subscription auth must be first-party CLI")
-        adapter = value["subscription_adapter"]
-        _require(
-            type(adapter) is dict and set(adapter) == _SUBSCRIPTION_KEYS,
-            "subscription adapter shape is unsupported",
-        )
-        _require(
-            adapter["module"] == "fable_advisor_mcp",
-            "subscription adapter module is not sealed",
-        )
-        _require(
-            adapter["allowed_seats"] == ["planner", "advisor"],
-            "subscription seats are unsupported",
-        )
-        _require(
-            adapter["allowed_operations"]
-            == ["create_plan", "revise_plan", "review_plan"],
-            "subscription operations are unsupported",
-        )
-        _require(
-            adapter["trust_strategy"]
-            == "first_party_auth_and_runtime_metadata",
-            "subscription trust strategy is unsupported",
-        )
-    _require(value["runtime_identity"] in {"conditional", "cli_metadata"}, "runtime identity mode is unsupported")
+    _require(value["lane"] == "subscription", "only subscription providers are bundled")
+    _require(value["experimental"] is False, "subscription provider cannot be experimental")
+    _require(value["qualified"] is True, "subscription provider must be sealed and qualified")
+    _require(value["base_url"] is None, "subscription provider cannot define an API base URL")
+    _require(value["wire_api"] is None, "subscription provider cannot define a wire API")
+    _require(value["auth"] == "first_party_cli", "subscription auth must be first-party CLI")
+    adapter = value["subscription_adapter"]
+    _require(
+        type(adapter) is dict and set(adapter) == _SUBSCRIPTION_KEYS,
+        "subscription adapter shape is unsupported",
+    )
+    _require(
+        adapter["module"] == "fable_advisor_mcp",
+        "subscription adapter module is not sealed",
+    )
+    _require(
+        adapter["allowed_seats"] == ["planner", "advisor"],
+        "subscription seats are unsupported",
+    )
+    _require(
+        adapter["allowed_operations"]
+        == ["create_plan", "revise_plan", "review_plan"],
+        "subscription operations are unsupported",
+    )
+    _require(
+        adapter["trust_strategy"]
+        == "first_party_auth_and_runtime_metadata",
+        "subscription trust strategy is unsupported",
+    )
+    _require(value["runtime_identity"] == "cli_metadata", "runtime identity mode is unsupported")
     models = value["models"]
     _require(type(models) is dict and bool(models), "provider must define at least one model")
     for model_id, model in models.items():
@@ -138,9 +114,6 @@ def validate_provider(value: Any, *, expected_id: str | None = None) -> dict[str
             "auto compact token limit must be below the context window",
         )
         _require(type(model["capability_source"]) is str and bool(model["capability_source"]), "capability source is invalid")
-    if base_url is not None:
-        value = dict(value)
-        value["base_url"] = base_url
     return value
 
 
@@ -157,11 +130,6 @@ def load_provider(provider_id: str) -> dict[str, Any]:
     return validate_provider(value, expected_id=provider_id)
 
 
-def endpoint_sha256(provider: dict[str, Any]) -> str:
-    value = provider.get("base_url") or "subscription"
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
 def resolve_effort(provider: dict[str, Any], model_id: str, requested: str) -> str:
     validate_provider(provider, expected_id=provider["id"])
     model = provider["models"].get(model_id)
@@ -174,11 +142,3 @@ def resolve_effort(provider: dict[str, Any], model_id: str, requested: str) -> s
             f"effort {effort!r} is unsupported for {model_id!r}; supported: {supported}"
         )
     return effort
-
-
-def require_qualified(provider: dict[str, Any]) -> None:
-    validate_provider(provider, expected_id=provider["id"])
-    if not provider["qualified"]:
-        raise ProviderError(
-            f"provider {provider['id']!r} is not qualified; complete the isolated Gate 0 procedure"
-        )

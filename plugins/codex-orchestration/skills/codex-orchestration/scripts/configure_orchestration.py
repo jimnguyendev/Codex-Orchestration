@@ -51,10 +51,8 @@ LEGACY_EXECUTOR_LAYER = "executor-model.toml"
 LEGACY_ADVISOR_LAYER = "advisor-model.toml"
 LEGACY_V1_DEFAULT_FILENAME = "orchestrated_executor.toml"
 
-PROVIDER_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 ASSIGNMENT_RE = re.compile(r"^\s*([A-Za-z0-9_-]+)\s*=")
-BUILTIN_PROVIDERS = {"openai", "ollama", "lmstudio", "amazon-bedrock"}
 VERSION_TIMEOUT_SECONDS = 10
 CATALOG_TIMEOUT_SECONDS = 30
 METADATA_COPY_TIMEOUT_SECONDS = 15
@@ -265,7 +263,6 @@ def build_agent_file(
     role: str,
     model: str,
     effort: str,
-    provider: str | None,
 ) -> str:
     if role == "executor":
         name = EXECUTOR_NAME
@@ -285,8 +282,6 @@ def build_agent_file(
         f"model = {toml_string(model)}",
         f"model_reasoning_effort = {toml_string(effort)}",
     ]
-    if provider:
-        fields.append(f"model_provider = {toml_string(provider)}")
     if role == "advisor":
         fields.append('sandbox_mode = "read-only"')
     fields.extend(
@@ -939,21 +934,6 @@ def resolve_role_effort(
         f"Cannot determine the default reasoning effort for {label.lower()} model "
         f"{model_id!r}. Choose an explicit {label.lower()} effort."
     )
-
-
-def validate_provider(provider: str | None, config: dict[str, Any]) -> None:
-    if provider is None:
-        return
-    if not PROVIDER_RE.fullmatch(provider):
-        raise ConfigurationError(f"Invalid provider ID: {provider!r}")
-    configured = config.get("model_providers") or {}
-    if not isinstance(configured, dict):
-        raise ConfigurationError("Personal model_providers setting is not a TOML table")
-    if provider not in BUILTIN_PROVIDERS and provider not in configured:
-        raise ConfigurationError(
-            f"Provider {provider!r} is neither built in nor defined in the personal "
-            "Codex config. Configure and authenticate it separately first."
-        )
 
 
 def ensure_safe_managed_path(path: Path, base: Path) -> None:
@@ -3248,6 +3228,13 @@ def main() -> int:
                 "--remove-saved-roles cannot be combined with model, advisor, "
                 "provider, or legacy-migration options."
             )
+        if args.executor_provider or args.advisor_provider:
+            raise ConfigurationError(
+                "Provider-pinned custom-role creation was removed in 0.10.0. "
+                "Codex Orchestration can still validate and remove its existing "
+                "managed role files, but it will not create a new model_provider "
+                "route. Configure any cross-provider role outside this plugin."
+            )
         if args.scope == "project" and args.codex_home is not None:
             raise ConfigurationError(
                 "--codex-home is personal-scope only. In project scope, set the "
@@ -3281,12 +3268,6 @@ def main() -> int:
         )
         executor_effort = args.executor_effort or "auto"
         advisor_effort = args.advisor_effort or "auto"
-
-        if args.scope == "project" and (args.executor_provider or args.advisor_provider):
-            raise ConfigurationError(
-                "Project-scoped custom agents cannot select machine-local model providers. "
-                "Omit provider flags or use explicitly approved personal scope."
-            )
 
         project_root = args.root.expanduser().resolve()
         if not project_root.is_dir():
@@ -3379,10 +3360,6 @@ def main() -> int:
 
         old_config = read_text(config_path)
         parsed_config = parse_toml(old_config, "Existing Codex config")
-        if args.scope == "personal":
-            validate_provider(args.executor_provider, parsed_config)
-            validate_provider(args.advisor_provider, parsed_config)
-
         scan_name_conflicts(agents_dir, managed_paths)
         other_base = personal_base if args.scope == "project" else project_base
         if other_base != base:
@@ -3487,7 +3464,6 @@ def main() -> int:
             "executor",
             args.executor_model,
             resolved_executor_effort,
-            args.executor_provider,
         )
         changes: list[tuple[Path, str, str]] = [
             (executor_path, old_executor, new_executor)
@@ -3498,7 +3474,6 @@ def main() -> int:
                 "advisor",
                 args.advisor_model,
                 resolved_advisor_effort,
-                args.advisor_provider,
             )
             changes.append((advisor_path, old_advisor, new_advisor))
         elif advisor_action == "remove":
@@ -3510,13 +3485,12 @@ def main() -> int:
         elif "advisor" in legacy_routes:
             legacy_routing = legacy_routes["advisor"].routing
             legacy_provider = legacy_routing.get("model_provider")
-            if args.scope == "project" and legacy_provider:
+            if legacy_provider:
                 raise ConfigurationError(
-                    "A legacy project advisor contains a provider override that cannot "
-                    "be migrated safely. Reconfigure it in personal scope."
+                    "A legacy advisor contains a provider override that 0.10.0 will "
+                    "not recreate. Re-run with --remove-advisor to remove that managed "
+                    "legacy route during migration, or preserve it outside this plugin."
                 )
-            if args.scope == "personal":
-                validate_provider(legacy_provider, parsed_config)
             legacy_effort = legacy_routing.get("model_reasoning_effort")
             if not legacy_effort:
                 raise ConfigurationError(
@@ -3527,7 +3501,6 @@ def main() -> int:
                 "advisor",
                 legacy_routing["model"],
                 legacy_effort,
-                legacy_provider,
             )
             if old_advisor:
                 if routing_tuple(parse_toml(old_advisor, "Existing advisor")) != routing_tuple(

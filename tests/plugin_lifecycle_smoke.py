@@ -32,7 +32,7 @@ PLUGIN_ID = "codex-orchestration@codex-orchestration"
 MARKETPLACE_NAME = "codex-orchestration"
 OLD_RELEASE = "a1d9c546665c3253cdcaa8fe5c0c060199a6126c"
 OLD_VERSION = "0.5.0"
-NEW_VERSION = "0.9.4"
+NEW_VERSION = "0.10.0"
 COMMAND_TIMEOUT_SECONDS = 60
 
 
@@ -527,18 +527,17 @@ def main() -> int:
                 installed_root / "skills" / "codex-orchestration" / "SKILL.md"
             ).read_text(encoding="utf-8")
             for expected in (
-                "Explicit seat labels are authoritative",
-                "never reinterpret a supplied `planner:` model as an Advisor",
-                "Fable Planner uses `create_plan` and `revise_plan`",
-                "Designer may edit only explicitly delegated design artifacts",
-                "is Kimi available to use as Designer?",
-                "Implicit invocation is discovery, not mutation authority",
-                "$codex-orchestration:codex-orchestration repair",
-                "$codex-orchestration:codex-orchestration --update",
+                "Luna Max — routine",
+                "Terra Max — hard or risky",
+                "fork_turns=none",
+                "Kimi, OpenRouter",
+                "are not part of this plugin",
+                "--repair --apply",
+                "--update` means update only this plugin",
             ):
                 if expected not in installed_skill:
                     raise SmokeFailure(
-                        f"Upgraded installed skill is missing Planner contract {expected!r}"
+                        f"Upgraded installed skill is missing routing contract {expected!r}"
                     )
 
             installed_metadata = (
@@ -580,7 +579,7 @@ def main() -> int:
                 "--executor-model",
                 "gpt-5.6-luna",
                 "--executor-effort",
-                "xhigh",
+                "max",
                 "--designer-model",
                 "gpt-5.6-luna",
                 "--designer-effort",
@@ -608,7 +607,7 @@ def main() -> int:
                 cwd=project,
                 env=env,
             )
-            if "Executor: gpt-5.6-luna@xhigh" not in direct_status.stdout:
+            if "Executor: gpt-5.6-luna@max" not in direct_status.stdout:
                 raise SmokeFailure("Direct native status lost the selected model route")
             if "Executor fallback: none" not in direct_status.stdout:
                 raise SmokeFailure("Direct native status lost the schema-6 fallback field")
@@ -765,6 +764,25 @@ def main() -> int:
                 if expected not in executor:
                     raise SmokeFailure(f"Generated executor is missing {expected!r}")
 
+            remove_roles_command = [
+                sys.executable,
+                str(configurator),
+                "--scope",
+                "personal",
+                "--root",
+                str(project),
+                "--codex-home",
+                str(codex_home),
+                "--personal-route-names",
+                "--remove-saved-roles",
+            ]
+            remove_preview = run(remove_roles_command, cwd=project, env=env)
+            if "Dry run only" not in remove_preview.stdout or not executor_file.exists():
+                raise SmokeFailure("Saved-role removal preview was not non-mutating")
+            run([*remove_roles_command, "--apply"], cwd=project, env=env)
+            if executor_file.exists():
+                raise SmokeFailure("Managed executor remained after saved-role removal")
+
             native_command = [
                 sys.executable,
                 str(native_configurator),
@@ -773,8 +791,10 @@ def main() -> int:
                 "--codex-home",
                 str(codex_home),
                 "--allow-incompatible-client",
-                "--executor-agent",
-                executor_name,
+                "--executor-model",
+                "gpt-5.6-luna",
+                "--executor-effort",
+                "max",
             ]
             native_preview = run(native_command, cwd=project, env=env)
             if "Dry run only" not in native_preview.stdout:
@@ -786,7 +806,8 @@ def main() -> int:
             user_config = (codex_home / "config.toml").read_text(encoding="utf-8")
             for expected in (
                 "[codex-orchestration managed-policy v1]",
-                f'agent_type = "{executor_name}"',
+                'model = "gpt-5.6-luna"',
+                'model = "gpt-5.6-terra"',
                 'fork_turns = "none"',
                 'tool_namespace = "agents"',
             ):
@@ -832,25 +853,6 @@ def main() -> int:
                 raise SmokeFailure("Pre-setup namespace absence was not restored")
             if (codex_home / ".codex-orchestration-routing.json").exists():
                 raise SmokeFailure("Native restore state remained after disable")
-
-            remove_roles_command = [
-                sys.executable,
-                str(configurator),
-                "--scope",
-                "personal",
-                "--root",
-                str(project),
-                "--codex-home",
-                str(codex_home),
-                "--personal-route-names",
-                "--remove-saved-roles",
-            ]
-            remove_preview = run(remove_roles_command, cwd=project, env=env)
-            if "Dry run only" not in remove_preview.stdout or not executor_file.exists():
-                raise SmokeFailure("Saved-role removal preview was not non-mutating")
-            run([*remove_roles_command, "--apply"], cwd=project, env=env)
-            if executor_file.exists():
-                raise SmokeFailure("Managed executor remained after saved-role removal")
 
             run_json(
                 [codex, "plugin", "remove", PLUGIN_ID, "--json"],

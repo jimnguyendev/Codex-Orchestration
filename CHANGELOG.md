@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.0 — Unreleased
+
+- Make task-local routing the default: GPT-5.6 Luna at Max for routine work and
+  GPT-5.6 Terra at Max for hard, ambiguous, or high-risk work.
+- Replace the mandatory multi-role workflow with one classification, one bounded
+  five-part handoff, root verification, and risk-gated optional review.
+- Remove bundled Kimi K3/OpenRouter support, credential enrollment, paid Gate 0,
+  and the generic External Model lifecycle. Preserve the sealed optional Fable and
+  Opus subscription routes.
+- Document that bounded cold handoff is not Elves-style same-session prewalk or
+  cross-model KV-cache transfer.
+- Rewrite the complete `docs/` set in Vietnamese with architecture diagrams,
+  same-session prewalk boundaries, cost/cache math, threat models, and a
+  step-by-step Fable–Sol–Luna setup guide.
+- Keep historical routing schemas and saved Executor fallback readable for safe
+  disable and upgrade compatibility, but stop presenting fallback as task routing.
+- Retire provider-pinned managed-role creation, preserve exact inspection/removal
+  compatibility, and fail closed even when OpenRouter already exists in user config.
+- Preserve validated Fable/Opus seats during marker-only legacy migration and
+  distinguish orphaned managed hints whose missing state makes repair/disable invalid.
+- Enforce `gpt-5.6-luna@max` as the only persistent 0.10 routine Executor and make
+  missing-state disable fail closed without changing config.
+
 ## 0.9.4 — Unreleased
 
 - Merge upstream through `2c0a4b8`, including sealed Claude Opus 5 Planner or

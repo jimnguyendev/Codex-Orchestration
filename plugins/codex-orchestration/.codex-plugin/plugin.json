@@ -1,7 +1,7 @@
 {
   "name": "codex-orchestration",
-  "version": "0.9.4",
-  "description": "Maintained independent fork of CJ Zafir's Codex Orchestration with safe provider-pinned roles and Executor fallback.",
+  "version": "0.10.0",
+  "description": "Route routine implementation to Luna Max and hard or risky work to Terra Max while the current task remains root.",
   "author": {
     "name": "CJ Zafir",
     "url": "https://github.com/Cjbuilds"
@@ -20,25 +20,23 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Codex Orchestration",
-    "shortDescription": "Plan, review, design, and build with multiple models",
-    "longDescription": "Maintained independent fork of CJ Zafir's Codex Orchestration. Use sealed Fable 5 or Opus 5 planning seats, safe direct-model Executor fallback, and audited API models without changing the root model or Desktop model picker.",
+    "shortDescription": "Route routine work to Luna and hard work to Terra",
+    "longDescription": "A compact Codex-native workflow: the current task remains root, GPT-5.6 Luna Max handles routine implementation, GPT-5.6 Terra Max handles hard or risky work, and optional Fable or Opus planning stays explicit.",
     "developerName": "CJ Zafir",
     "category": "Productivity",
     "websiteURL": "https://github.com/jimnguyendev/Codex-Orchestration",
     "brandColor": "#C8A951",
     "capabilities": [
-      "Multi-model workflows",
-      "Custom agent roles",
-      "Model planning",
-      "Plan review",
-      "Design handoffs",
-      "External model roles",
-      "Efficient execution"
+      "Task-shape routing",
+      "Routine Luna execution",
+      "Hard-task Terra execution",
+      "Bounded handoffs",
+      "Optional model planning"
     ],
     "defaultPrompt": [
-      "$codex-orchestration:codex-orchestration setup designer: GPT-5.6 Sol High, executor: GPT-5.6 Luna Extra High",
-      "$codex-orchestration:codex-orchestration --update",
-      "$codex-orchestration:codex-orchestration Planner: Claude Fable 5 High, Designer: Kimi K3"
+      "$codex-orchestration:codex-orchestration route this implementation",
+      "$codex-orchestration:codex-orchestration use Luna Max for this routine task",
+      "$codex-orchestration:codex-orchestration use Terra Max because this task is risky"
     ]
   }
 }

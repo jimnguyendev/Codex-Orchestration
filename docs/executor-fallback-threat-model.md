@@ -1,29 +1,38 @@
-# Saved Executor fallback threat model (v1)
+# Mô hình đe dọa của Executor fallback cũ
 
-## Scope and asset
+## Phạm vi
 
-Schemas 5 and 6 permit an optional saved direct-model Executor fallback. Schema 6
-combines that contract with the sealed Fable/Opus subscription routes. The protected
-asset is the root's exact delegated request: its intended model/effort, all other
-spawn fields, one-execution semantics, and an honest record of whether fallback was
-used. This is model-visible routing policy. It does not make the Codex engine
-schedule, load, or successfully call a model.
+Tài liệu này mô tả cơ chế fallback được lưu trong routing state schema 5 và 6.
+Từ phiên bản 0.10.0, đây chỉ là lớp tương thích để đọc, sửa hoặc tắt policy cũ.
+Workflow mới không dùng fallback để quyết định Luna hay Terra.
 
-| Threat | Mitigation and negative test |
+Tài sản cần bảo vệ là request ủy quyền chính xác của Root: model và effort dự
+kiến, các trường spawn còn lại, giới hạn chạy một lần và bằng chứng trung thực
+về việc fallback có được dùng hay không. Policy chỉ hướng dẫn model; nó không ép
+Codex engine phải schedule, load hoặc gọi thành công một model.
+
+## Đe dọa và biện pháp kiểm soát
+
+| Đe dọa | Biện pháp và test bắt buộc |
 | --- | --- |
-| Silent downgrade | A fallback must be an opt-in, different, direct model; it is consumed before one retry. A current-task Executor override and `no subagents` suppress it. Test that no fallback occurs without saved state, after a first retry, or for task-local Executor work. |
-| Tampered state | State schema/policy 5 or 6, exact top-level shape, route type, different model, and marker validation fail closed. Both managed hints must contain exactly one schema-specific canonical JSON binding for every saved route, including a null or direct-model fallback. Test malformed schema values, custom-agent fallback, equal model, unknown fields, mismatched policy version, and a valid-shape route-only edit. |
-| Schema collision | This fork preserves schema 5 as the fallback-bearing compatibility shape and emits schema 6 for fallback plus Opus. Schema 5 rejects `claude_subscription`; schema 6 requires the fallback field and schema-6 binding. Test genuine schemas 1 through 6, schema-5 upgrade, Opus rejection in schema 5, and Opus acceptance only in schema 6. |
-| Error spoofing | Retry only for the immediate direct `agents.spawn_agent` result with no child/agent provenance and the exact normalized `Unknown model <primary>. Available models: <list>` shape containing the exact saved fallback. Test substring, mixed, changed, prompt/log-derived, and ambiguous errors. |
-| Provenance confusion | Presence of a child or agent ID makes the result ineligible. Test that post-child output, child task errors, and any later result cannot trigger a retry. |
-| Double execution | Consume the single eligibility before invoking fallback, preserve every request field except `model` and `reasoning_effort`, then stop after the retry. Test that retry count cannot exceed one and all preserved fields are byte-for-byte equivalent. |
-| Version skew | Package, manifest, lifecycle fixture, schema/policy validator, and public docs release as 0.9.4 together; legacy schemas remain constrained to their historic shapes. Test packaging version alignment and reject unrecognized state schemas. |
-| CAS race | Native setup/disable pair App Server version checks with a byte-digest state compare-and-swap under an installer lock. The digest observed before the config write must still match immediately before state replacement or removal; otherwise the newer valid state is preserved and the config change is rolled back. Test stale config versions plus concurrent setup and disable state replacements. |
-| Platform lock bypass | Setup and disable fail before config mutation unless the host exposes `fcntl` or Windows `msvcrt` byte-range locking. The lock file is single-byte initialized and fsynced before Windows locking. Test both lock backends and the unsupported-backend negative path. |
+| Hạ cấp model âm thầm | Fallback phải được người dùng bật rõ ràng, là direct model khác primary và chỉ được thử lại một lần. Override trong task hiện tại hoặc `no subagents` phải vô hiệu hóa fallback. |
+| State bị sửa tay hoặc hỏng | Validator kiểm tra schema, policy version, exact top-level shape, route type, marker và canonical JSON binding trong cả hai managed hint. Field lạ, model trùng nhau hoặc custom-agent fallback đều bị từ chối. |
+| Xung đột lịch sử schema 5 | Fork giữ schema 5 theo contract fallback; upstream từng dùng cùng số schema cho contract khác. Không đoán. Phải disable bằng phiên bản đã tạo state rồi setup mới. Schema 6 kết hợp fallback với Fable/Opus. |
+| Giả mạo lỗi để kích hoạt fallback | Chỉ immediate result của `agents.spawn_agent`, chưa có child/agent provenance, với lỗi chuẩn hóa chính xác `Unknown model <primary>. Available models: <list>` và có đúng fallback mới đủ điều kiện. |
+| Nhầm provenance | Chỉ cần đã có child/agent ID thì kết quả không còn đủ điều kiện. Output từ child, log, prompt hoặc lỗi task về sau không được kích hoạt retry. |
+| Chạy implementation hai lần | Quyền retry được consume trước khi gọi fallback. Mọi field ngoài `model` và `reasoning_effort` phải giữ nguyên; sau retry phải dừng. |
+| Race khi ghi config/state | Setup và disable dùng App Server version check, digest compare-and-swap và installer lock. State đổi giữa chừng phải được giữ nguyên, còn config write phải rollback. |
+| Bỏ qua lock theo hệ điều hành | Chỉ ghi khi host có `fcntl` hoặc Windows `msvcrt` byte-range locking. Không có backend phù hợp thì dừng trước mutation. |
+| Lệch version payload | Manifest, package, lifecycle fixture, validator và tài liệu phải cùng version 0.10.0. Release check từ chối version không đồng bộ hoặc state schema không biết. |
 
-Permission, authentication, provider, rate-limit, timeout, cancellation, and task
-errors are negative cases, not fallback signals. Their tests require no retry and a
-reported failure. Residual limitation: a valid policy can only constrain the model's
-visible instructions; it cannot prove the current task's callable child schema,
-engine scheduler behavior, or live provider capacity. Exact live tool evidence is
-still required before reporting route use as accepted or confirmed.
+Permission, authentication, provider, rate limit, timeout, cancellation và lỗi
+thực thi thông thường đều là negative case: không retry và báo thất bại.
+
+## Ranh giới còn lại
+
+- Một policy hợp lệ không chứng minh child route callable trong task hiện tại.
+- Setup/status không chứng minh runtime model identity.
+- Host không expose metadata thì chỉ được báo `route accepted`, không được báo
+  `used and confirmed`.
+- Classification mới phải chọn Luna Max hoặc Terra Max trước spawn. Fallback cũ
+  không phải bộ phân loại độ khó.
