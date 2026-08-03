@@ -216,6 +216,21 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("configure_native_routing.py", smoke)
         self.assertIn("fable_advisor_mcp.py", smoke)
 
+    def test_threat_models_bind_current_payload_version(self) -> None:
+        version = json.loads(
+            (PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )["version"]
+        routing = (ROOT / "docs" / "routing-simplification-threat-model.md").read_text(
+            encoding="utf-8"
+        )
+        fallback = (ROOT / "docs" / "executor-fallback-threat-model.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"release hiện tại là {version}", routing)
+        self.assertIn(f"upgrade lên package {version}", routing)
+        self.assertIn(f"phải cùng version {version}", fallback)
+        self.assertIn("Từ phiên bản 0.10.0", fallback)
+
     def test_readme_leads_with_product_and_routing_before_install(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertLess(readme.index("## How routing works"), readme.index("## Install"))

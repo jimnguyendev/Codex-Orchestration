@@ -29,7 +29,7 @@ dùng, routing state cũ và bằng chứng trung thực về model đã chạy.
 | Marker-only migration làm rơi sealed seat | Khi policy/state cũ còn khớp và chỉ thiếu marker 0.10, setup bảo toàn exact Fable/Opus route bị omitted. Fable và Opus đều có regression riêng. |
 | State cũ không thể repair/disable | Giữ exact schema validators, CAS, lock, restore snapshot, repair/disable và compatibility-only fallback. |
 | Runtime route bị nói quá bằng chứng | Chỉ báo `route accepted` khi spawn API nhận đúng route; chỉ báo `used and confirmed` khi host expose effective model/effort. |
-| Payload mới dùng lại cache identity cũ | Tăng mọi plugin identity lên 0.10.0; lifecycle smoke cài fixture lịch sử 0.5.0 rồi upgrade lên package 0.10.0 và xác nhận cache path/payload mới. |
+| Payload mới dùng lại cache identity cũ | Mỗi payload phải tăng toàn bộ plugin identity; release hiện tại là 0.10.3. Lifecycle smoke cài fixture lịch sử 0.5.0 rồi upgrade lên package 0.10.3 và xác nhận cache path/payload mới. |
 
 ## Negative và malformed paths bắt buộc
 
