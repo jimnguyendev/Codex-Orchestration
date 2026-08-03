@@ -522,7 +522,7 @@ class AppServer:
                     "clientInfo": {
                         "name": "codex_orchestration_installer",
                         "title": "Codex Orchestration Installer",
-                        "version": "0.10.2",
+                        "version": "0.10.3",
                     },
                     "capabilities": {"experimentalApi": True},
                 },
@@ -1318,7 +1318,8 @@ On that one eligible result only, consume eligibility before retrying exactly on
         "The configured Planner is available only when the current task explicitly "
         "requests planning or a repository gate requires it. Configuration alone "
         "never invokes Planner. Root supplies a bounded packet, owns the canonical "
-        "plan, and validates every result."
+        "plan, and validates every result. A Planner call consumes the default "
+        "one-call planning/review budget."
         if planner is not None
         else "No Planner is configured. The root drafts and revises every plan."
     )
@@ -1326,8 +1327,10 @@ On that one eligible result only, consume eligibility before retrying exactly on
         "The configured Advisor is available only when the current task explicitly "
         "requests review or a repository/risk gate requires independent review. "
         "Configuration alone never invokes Advisor and never creates a review loop. "
-        "Each requested review receives only the current plan, constraints, and a "
-        "compact findings ledger; root adjudicates the result."
+        "Each requested review receives only the reviewed artifact (plan or exact "
+        "final tree), constraints, and a compact findings ledger; root adjudicates "
+        "the result. An Advisor call "
+        "consumes the default one-call planning/review budget."
         if advisor is not None
         else (
             "No Advisor is configured. Do not create a review loop; after a configured "
@@ -1369,11 +1372,13 @@ If you are the root task model, you are the orchestrator. Own intent, planning, 
 
 The root owns planning, findings, validation, adjudication, and release to implementation. There is no automatic planning or review loop and no Finalizer seat.
 
-Before implementation delegation, classify the task once. Keep trivial work in root. Apply a warm-root gate: if root already holds the implementation context, owned paths overlap dirty integration, or a cold child must rediscover several packages, keep the work in root. Use the configured Executor as the routine lane only for bounded, well-specified, low-risk work with a known change surface, normally at most three owned files or one narrow module. A slice spanning database schema, migration, seed, API wiring, and tests is hard/state work even when bounded. Use the exact hard/risky lane `model = {HARD_MODEL!r}, reasoning_effort = {LANE_EFFORT!r}, fork_turns = "none"` for security, authentication, state, destructive behavior, migrations, concurrency, unclear legacy contracts, broad refactors, or other material ambiguity and blast radius. When uncertain, use the hard/risky lane. If Luna discovers hidden risk, stop, correct the packet, and make at most one Terra attempt; never run both lanes competitively or resend an unchanged prompt.
+Before implementation delegation, classify the task once. Keep trivial work in root. Apply a warm-root gate: if root already holds the implementation context, owned paths overlap dirty integration, or a cold child must rediscover several packages, keep the work in root. Use the configured Executor as the routine lane only for bounded, well-specified, low-risk work with a known change surface. File count is advisory, never a hard eligibility limit: a coherent mechanical or low-risk change in one module may remain Luna work even when it touches more than three files. A slice spanning database schema, migration, seed, API wiring, and tests is hard/state work even when bounded. Route by contract, state boundaries, ambiguity, and blast radius. Use the exact hard/risky lane `model = {HARD_MODEL!r}, reasoning_effort = {LANE_EFFORT!r}, fork_turns = "none"` for security, authentication, state, destructive behavior, migrations, concurrency, unclear legacy contracts, broad refactors, or other material ambiguity and blast radius. When uncertain, use the hard/risky lane. If Luna discovers hidden risk, stop, correct the packet, and make at most one Terra attempt; never run both lanes competitively or resend an unchanged prompt.
 
 Give each worker one bounded packet with OBJECTIVE, OWNERSHIP, CONTRACTS, DONE WHEN, and VERIFY AND RETURN. Do not copy the full transcript, plan, logs, or files the worker can inspect. Every Luna packet must add FIRST ARTIFACT and READ BUDGET stop conditions: at most three batched discovery tool calls before the first edit or exact regression, and within 120 seconds create the smallest safe artifact or return BLOCKED. At that gate root inspects the owned-path diff before messaging or declaring a stall. With no artifact, request one checkpoint and allow at most 60 more seconds. With a partial artifact but no new artifact for 180 seconds, request one checkpoint, allow at most 60 more seconds, and stop the seat. Before interrupting snapshot the owned diff; after interrupting wait for terminal state, snapshot again, and reconcile every partial edit before root touches the same paths or claims no changes. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits. Inspect every handoff, integrate it, and run final checks yourself.
 
 Explicit user instructions win, including no-subagents and task-local seat overrides. Persistent and task-local Planner and Advisor routes must remain distinct: reject the same direct model ID, the same custom-agent name, or more than one bundled Claude subscription seat. This policy does not create or change a Goal, weaken approvals, alter permissions, or force a worker count.
+
+Routine tasks use zero Planner or Advisor calls by default. Across all tasks, the default budget is at most one Planner-or-Advisor model call total, and only after an explicit current-task request or repository/risk gate. If exact final-tree review is required, reserve that call until the implementation and checks are complete and bind it to the exact tree or head. PLAN_REVISE or any finding does not authorize a second call: root fixes locally and asks the user before any model re-review needed to attest the changed tree. Only an explicit current-task instruction may enlarge this budget.
 
 Planner and Advisor are policy-isolated, root-directed seats: they cannot contact each other, Designer, or Executors, spawn descendants, edit files, execute work, or release Executor. They return only to the root. Designer is also root-directed: it cannot contact Planner, Advisor, or Executor, spawn descendants, redesign the root plan, change implementation code, or release Executor. Designer may edit only explicitly delegated design artifacts. Bundled Claude MCP requests do not carry caller identity, so caller isolation is instruction-enforced even though the bridge itself disables tools and persistence. If you are a spawned child, stay inside the supplied packet, report only to the root, never call planning tools, and never spawn descendants. An Executor never redesigns the root plan or contacts Planner, Advisor, or Designer.
 """
@@ -1384,10 +1389,10 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
         planner_hint = (
             "Only after an explicit current-task planning request or repository gate, "
             "call `create_plan` from MCP server "
-            f"{json.dumps(planner['server'])}; after PLAN_REVISE, call `revise_plan` "
-            "from that server. These are root tool calls. Require PLAN_DRAFT from "
-            "creation, then assign the canonical version. Require PLAN_REVISION, "
-            "FINDINGS_LEDGER, and REVISED_PLAN from each revision."
+            f"{json.dumps(planner['server'])}. This is a root tool call. Require "
+            "PLAN_DRAFT and assign the canonical version. Under the default one-call "
+            "budget root handles later revisions locally; call `revise_plan` only "
+            "after the user explicitly authorizes a second model call."
         )
     elif planner is not None:
         planner_hint = (
@@ -1395,8 +1400,8 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
             "call this tool with "
             f"{_spawn_route(planner)}, fork_turns = \"none\". Send the complete "
             "self-contained packet for that round. Require PLAN_DRAFT initially; "
-            "require PLAN_REVISION, the source version, complete findings ledger, "
-            "and full revised plan after PLAN_REVISE."
+            "under the default one-call budget, root revises locally or asks the user "
+            "before any second model call."
         )
     else:
         planner_hint = "No Planner route is configured; the root drafts and revises."
@@ -1409,15 +1414,16 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
             "gate, call `review_plan` from MCP server "
             f"{json.dumps(advisor['server'])} with the round's self-contained packet. "
             "This is a read-only root tool call, not a spawned child. Require "
-            "PLAN_APPROVED or PLAN_REVISE and fail closed unless the user explicitly "
-            "made Advisor failure best-effort for the current task."
+            "PLAN_APPROVED or PLAN_REVISE. PLAN_REVISE does not authorize an "
+            "automatic second review; ask the user before another model call."
         )
     elif advisor is not None:
         advisor_hint = (
             "Only after an explicit current-task review request or repository/risk "
             "gate, call this tool with "
             f"{_spawn_route(advisor)}, fork_turns = \"none\". Send the complete "
-            "review packet and require PLAN_APPROVED or PLAN_REVISE."
+            "review packet and require PLAN_APPROVED or PLAN_REVISE. PLAN_REVISE "
+            "does not authorize an automatic second review; ask the user first."
         )
     else:
         advisor_hint = "No advisor route is configured."
@@ -1436,7 +1442,9 @@ If you are the root task model, you are the orchestrator. Apply these routes onl
 
 {route_binding}
 
-Classify before spawning. Keep trivial or warm-root work in root. Luna is only for a known narrow change surface, normally at most three owned files or one module; schema + migration + seed + API + tests is Terra/state work even when bounded. For routine, bounded, well-specified, low-risk work that passes this gate, call this tool with {_spawn_route(executor)}, fork_turns = "none". For hard, ambiguous, or high-risk work, call it with model = "{HARD_MODEL}", reasoning_effort = "{LANE_EFFORT}", fork_turns = "none". When uncertain, use Terra. Send only the five-part bounded task packet; do not copy the full conversation. A Luna packet must require a first artifact within 120 seconds and no more than three batched discovery calls before it; otherwise return BLOCKED. Root must inspect and snapshot the owned diff before declaring a stall or interrupting, then wait for terminal state and reconcile partial edits before takeover. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits.
+Classify before spawning. Keep trivial or warm-root work in root. File count is advisory, not a hard Luna limit: a coherent mechanical or low-risk change in one module may touch more than three files. Schema + migration + seed + API + tests is Terra/state work even when bounded; route by contract, state boundaries, ambiguity, and blast radius. For routine, bounded, well-specified, low-risk work that passes this gate, call this tool with {_spawn_route(executor)}, fork_turns = "none". For hard, ambiguous, or high-risk work, call it with model = "{HARD_MODEL}", reasoning_effort = "{LANE_EFFORT}", fork_turns = "none". When uncertain, use Terra. Send only the five-part bounded task packet; do not copy the full conversation. A Luna packet must require a first artifact within 120 seconds and no more than three batched discovery calls before it; otherwise return BLOCKED. Root must inspect and snapshot the owned diff before declaring a stall or interrupting, then wait for terminal state and reconcile partial edits before takeover. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits.
+
+Routine tasks use zero Planner or Advisor calls by default. Across all tasks, the default budget is at most one Planner-or-Advisor model call total after an explicit current-task request or repository/risk gate. Reserve it for an exact final-tree review when that gate is mandatory. PLAN_REVISE or any finding never authorizes a second call; root fixes locally and asks the user before model re-review. Only an explicit current-task instruction may enlarge this budget.
 
 {fallback_usage}
 

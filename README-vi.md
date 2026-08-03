@@ -32,6 +32,11 @@ Elves và không chuyển KV cache giữa model.
 Sau khi worker xong, Root phải xem diff thật và chạy lại kiểm tra liên quan. Báo cáo của
 worker không phải bằng chứng cuối cùng.
 
+Số file chỉ là tín hiệu phụ, không phải hard limit của Luna: thay đổi routine trong một
+module có thể chạm hơn ba file. Routine mặc định dùng 0 Planner/Advisor call; mọi task
+đều có budget mặc định tối đa một call khi người dùng hoặc repository/risk gate yêu
+cầu. Muốn model review lần hai phải có current-task approval rõ ràng.
+
 Tài liệu đầy đủ bằng tiếng Việt, gồm sơ đồ kiến trúc, same-session prewalk, phép tính
 chi phí/cache, threat model và hướng dẫn từng bước, nằm tại
 [`docs/README.md`](docs/README.md).

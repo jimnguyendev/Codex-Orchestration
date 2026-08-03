@@ -27,11 +27,12 @@ handoff. Otherwise choose exactly one implementation lane before the first spawn
 
 Apply a warm-root gate before choosing Luna. Keep the work in root when root already
 holds the relevant implementation context, the owned paths overlap a dirty integration,
-or a cold child would have to rediscover several packages before editing. A Luna slice
-should normally have a known change surface of at most three owned files or one narrow
-module. A slice spanning database schema, migration, seed, API wiring, and tests is
-Terra/state work even when its ownership is bounded. Bounded ownership alone does not
-make a task routine.
+or a cold child would have to rediscover several packages before editing. File count is
+advisory, never a hard eligibility limit: a coherent mechanical or low-risk change in
+one module can remain Luna work even when it touches more than three files. A slice
+spanning database schema, migration, seed, API wiring, and tests is Terra/state work
+even when its ownership is bounded. Route by contract, state boundaries, ambiguity,
+and blast radius rather than counting files.
 
 When uncertain, use Terra. Route by task shape rather than model prestige. A user's
 explicit lane or `no subagents` instruction overrides this default.
@@ -117,9 +118,10 @@ say “no changes” before this handoff completes. Never launch an unchanged re
 ## Verification
 
 Worker reports are claims. Root must inspect the actual diff, confirm scope, rerun the
-smallest relevant checks, and judge the outcome against the user's request. Use an
-additional reviewer only when the user requests one or the repository/risk gate
-requires independent review. Do not add a routine final-review spawn to every task.
+smallest relevant checks, and judge the outcome against the user's request. Routine
+tasks use zero Planner or Advisor calls by default. Across all tasks, use one bounded
+planning or review call only when the user requests it or a repository/risk gate
+requires it. Do not add a routine final-review spawn to every task.
 
 For security, authentication, state, destructive behavior, migrations, or public API
 changes, use Terra and follow repository-specific threat-model, negative-test, and
@@ -128,11 +130,14 @@ global agent limits, or Goal ownership.
 
 ## Optional planning and review
 
-Planner and Advisor are opt-in. Do not invoke them merely because they are configured.
-Use them when the user explicitly requests planning/review or when a repository gate
-requires it. Carry only the current plan, original constraints, and a compact findings
-ledger; never replay the full transcript. Stop on approval and avoid repeated reviews
-that do not add new evidence.
+Planner and Advisor are opt-in. Configuration alone authorizes zero calls. The default
+budget is at most one Planner-or-Advisor model call total per task, and only after an
+explicit current-task request or a repository/risk gate. If an exact final-tree review
+is mandatory, reserve that call until implementation and checks finish, then bind it to
+the exact tree or head. `PLAN_REVISE` or another finding never authorizes an automatic
+second call: root fixes the issue, then asks the user before any model re-review needed
+to attest the changed tree. Only an explicit current-task instruction may enlarge this
+budget. Never replay the full transcript or invoke a configured seat merely to use it.
 
 Claude Fable 5 and Claude Opus 5 remain sealed first-party subscription routes for one
 Planner or Advisor seat. They use the official Claude Code login, no tools, no session

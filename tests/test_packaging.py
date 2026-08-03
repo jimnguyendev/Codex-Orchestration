@@ -136,7 +136,7 @@ class PackagingTests(unittest.TestCase):
         )
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertEqual(manifest["name"], "codex-orchestration")
-        self.assertEqual(manifest["version"], "0.10.2")
+        self.assertEqual(manifest["version"], "0.10.3")
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertEqual(manifest["mcpServers"], "./.mcp.json")
         self.assertEqual(
@@ -145,7 +145,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(manifest["author"]["name"], "CJ Zafir")
         self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./plugins/codex-orchestration")
-        self.assertIn("## 0.10.2 — Unreleased", changelog)
+        self.assertIn("## 0.10.3 — Unreleased", changelog)
 
     def test_runtime_payload_is_compact_and_kimi_free(self) -> None:
         scripts = SKILL_ROOT / "scripts"
@@ -175,7 +175,7 @@ class PackagingTests(unittest.TestCase):
         self.assertTrue(removed.isdisjoint({path.name for path in scripts.glob("*.py")}))
         self.assertFalse((SKILL_ROOT / "references" / "external-models.md").exists())
         skill_lines = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8").splitlines()
-        self.assertLessEqual(len(skill_lines), 280)
+        self.assertLessEqual(len(skill_lines), 290)
 
     def test_fable_mcp_is_packaged_and_disabled_until_selected(self) -> None:
         mcp = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))
@@ -212,7 +212,7 @@ class PackagingTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('OLD_VERSION = "0.5.0"', smoke)
-        self.assertIn('NEW_VERSION = "0.10.2"', smoke)
+        self.assertIn('NEW_VERSION = "0.10.3"', smoke)
         self.assertIn("configure_native_routing.py", smoke)
         self.assertIn("fable_advisor_mcp.py", smoke)
 

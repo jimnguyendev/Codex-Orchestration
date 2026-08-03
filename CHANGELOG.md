@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.3 — Unreleased
+
+- Make file count an advisory routing signal rather than a hard Luna limit;
+  coherent routine work may span more than three files in one module.
+- Set the default optional planning/review budget to one model call per task,
+  reserve it for exact final-tree review when required, and require explicit
+  user approval before any second call.
+
 ## 0.10.2 — Unreleased
 
 - Add a warm-root gate and classify combined database schema, migration, seed,

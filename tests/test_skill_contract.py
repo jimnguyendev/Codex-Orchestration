@@ -62,6 +62,9 @@ class SkillContractTests(unittest.TestCase):
 
     def test_luna_has_warm_root_progress_and_takeover_guards(self) -> None:
         self.assertIn("Apply a warm-root gate", SKILL)
+        self.assertIn("File count is\nadvisory, never a hard eligibility limit", SKILL)
+        self.assertIn("touches more than three files", SKILL)
+        self.assertIn("Route by contract, state boundaries", SKILL)
         self.assertIn("database schema, migration, seed, API wiring, and tests", SKILL)
         self.assertIn("at most\nthree batched discovery tool calls", SKILL)
         self.assertIn("Within 120 seconds", SKILL)
@@ -73,9 +76,14 @@ class SkillContractTests(unittest.TestCase):
 
     def test_reviews_and_planning_are_not_automatic(self) -> None:
         self.assertIn("not automatically create Planner, Advisor, Designer", SKILL)
-        self.assertIn("Do not add a routine final-review spawn", SKILL)
+        self.assertIn("final-review spawn to every task", SKILL)
         self.assertIn("Planner and Advisor are opt-in", SKILL)
-        self.assertIn("Do not invoke them merely because they are configured", SKILL)
+        self.assertIn("Configuration alone authorizes zero calls", SKILL)
+        self.assertIn("at most one Planner-or-Advisor model call total per task", SKILL)
+        self.assertIn("reserve that call until implementation and checks finish", SKILL)
+        self.assertIn("asks the user before any model re-review", SKILL)
+        self.assertIn("Only an explicit current-task instruction may enlarge", SKILL)
+        self.assertNotIn("at most three owned files", SKILL)
 
     def test_kimi_and_generic_external_lifecycle_are_removed(self) -> None:
         self.assertIn("Kimi, OpenRouter", SKILL)

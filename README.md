@@ -34,6 +34,11 @@ The root inspects the actual diff and reruns relevant checks. Worker completion 
 final acceptance. Extra review is used only when requested or required by repository
 and risk gates.
 
+File count is advisory rather than a hard Luna limit. Routine work uses no Planner or
+Advisor call by default; across all tasks the default budget permits at most one such
+model call after an explicit request or repository/risk gate. A second model review
+requires explicit current-task approval.
+
 The complete Vietnamese documentation includes the architecture diagrams, exact
 same-session prewalk boundary, cost/cache math, threat models, and step-by-step setup:
 [`docs/README.md`](docs/README.md).

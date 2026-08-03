@@ -76,6 +76,12 @@ tạo credential. Fable và Sol chỉ là seat tùy chọn; cấu hình xong v�
 chúng nếu task hiện tại không yêu cầu planning/review hoặc repository gate không
 bắt buộc.
 
+Routine task mặc định dùng 0 Planner/Advisor call. Mọi task có budget mặc định tối
+đa một Planner-or-Advisor model call. Nếu repo cần exact final-tree review, giữ lượt
+đó tới cây cuối. Finding hoặc `PLAN_REVISE` không tự mở lượt thứ hai; Root phải
+hỏi người dùng trước khi gọi model re-review. Số file cũng không phải hard Luna
+limit: thay đổi mechanical/low-risk trong một module vẫn có thể chạm hơn ba file.
+
 ## 4. Xác nhận policy
 
 ```bash

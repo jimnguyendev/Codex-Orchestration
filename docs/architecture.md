@@ -92,6 +92,12 @@ Planner/Advisor được cấu hình không có nghĩa là tự chạy. Chúng c
 - người dùng yêu cầu planning/review trong task hiện tại; hoặc
 - repository/risk gate bắt buộc independent review.
 
+Routine mặc định dùng 0 call; mọi task có budget tối đa một Planner-or-Advisor
+model call. Nếu repository bắt buộc exact final-tree review, Root giữ lượt đó
+tới sau implementation/checks. Finding hoặc `PLAN_REVISE` không tự cho phép gọi
+lần hai; Root sửa cục bộ và phải hỏi người dùng trước khi model re-review. Chỉ
+current-task instruction rõ ràng mới được nới budget này.
+
 Fable có thể là Planner qua sealed Claude bridge. Sol có thể là Advisor cùng
 provider qua direct child route. Hai seat không trực tiếp nói chuyện với nhau;
 Root giữ canonical plan và findings ledger.
