@@ -1,6 +1,6 @@
 # Tài liệu Codex Orchestration
 
-Thư mục này mô tả đầy đủ kiến trúc và cách vận hành phiên bản 0.10.0 bằng tiếng
+Thư mục này mô tả đầy đủ kiến trúc và cách vận hành phiên bản 0.11.0 bằng tiếng
 Việt. README ở root là bản giới thiệu ngắn; đây là nơi tra cứu contract chi tiết.
 
 ## Plugin giải quyết bài toán gì?
@@ -15,6 +15,8 @@ Codex Orchestration chọn một thiết kế nhỏ hơn:
 - Root đang được chọn trong task giữ toàn bộ quyền quyết định.
 - Việc routine, rõ contract, rủi ro thấp đi Luna Max.
 - Việc khó, mơ hồ hoặc rủi ro cao đi Terra Max.
+- Nếu Root là GPT-6 Astra (`gpt-6-astra`), việc hard/risky ở lại Root thay vì
+  hạ xuống Terra; direct Astra child phải có exact ID trong callable catalog.
 - Task quá nhỏ ở lại Root.
 - Planner/Advisor chỉ chạy khi người dùng hoặc repository gate yêu cầu.
 - Mỗi child nhận packet ngắn và Root kiểm tra lại kết quả thật.

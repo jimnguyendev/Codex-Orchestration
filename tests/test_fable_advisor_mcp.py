@@ -44,6 +44,15 @@ class FableAdvisorMcpTests(unittest.TestCase):
     def route(effort: str = "high") -> dict[str, str]:
         return {
             "kind": "fable",
+            "model": FABLE.FABLE_MODEL,
+            "effort": effort,
+            "server": "fable-advisor-python3",
+        }
+
+    @staticmethod
+    def legacy_fable_route(effort: str = "high") -> dict[str, str]:
+        return {
+            "kind": "fable",
             "model": "claude-fable-5",
             "effort": effort,
             "server": "fable-advisor-python3",
@@ -170,7 +179,7 @@ class FableAdvisorMcpTests(unittest.TestCase):
             "result": response,
             "modelUsage": model_usage
             if model_usage is not DEFAULT_MODEL_USAGE
-            else {"claude-fable-5": {"outputTokens": 12}},
+            else {FABLE.FABLE_MODEL: {"outputTokens": 12}},
         }
         if structured_output is not DEFAULT_STRUCTURED_OUTPUT:
             payload["structured_output"] = structured_output
@@ -303,8 +312,8 @@ class FableAdvisorMcpTests(unittest.TestCase):
             result = FABLE.review_plan("Review this complete plan.")
 
         self.assertEqual(result["decision"], "PLAN_APPROVED")
-        self.assertEqual(result["model"], "claude-fable-5")
-        self.assertEqual(result["used_models"], ["claude-fable-5"])
+        self.assertEqual(result["model"], FABLE.FABLE_MODEL)
+        self.assertEqual(result["used_models"], [FABLE.FABLE_MODEL])
         self.assertNotIn("subscription_type", result)
         auth_command, auth_kwargs = calls[0]
         self.assertEqual(auth_command[-3:], ["auth", "status", "--json"])
@@ -327,7 +336,7 @@ class FableAdvisorMcpTests(unittest.TestCase):
             review_command[review_command.index("--permission-mode") + 1], "dontAsk"
         )
         self.assertEqual(
-            review_command[review_command.index("--model") + 1], "claude-fable-5"
+            review_command[review_command.index("--model") + 1], FABLE.FABLE_MODEL
         )
         self.assertEqual(review_command[review_command.index("--effort") + 1], "high")
         self.assertEqual(
@@ -579,12 +588,14 @@ class FableAdvisorMcpTests(unittest.TestCase):
                 FABLE.check_claude_auth(executable)
         run.assert_not_called()
 
-    def test_runtime_model_policy_accepts_only_fable_and_exact_allowed_helper(
+    def test_legacy_fable_runtime_policy_remains_backward_compatible(
         self,
     ) -> None:
+        self.write_state(advisor=self.legacy_fable_route())
         resolved_primary = "claude-opus-4-8"
+        legacy_model = "claude-fable-5"
         allowed_scenarios = (
-            ({FABLE.FABLE_MODEL: {"outputTokens": 12}}, [FABLE.FABLE_MODEL]),
+            ({legacy_model: {"outputTokens": 12}}, [legacy_model]),
             ({resolved_primary: {"outputTokens": 12}}, [resolved_primary]),
             (
                 {
@@ -595,13 +606,13 @@ class FableAdvisorMcpTests(unittest.TestCase):
             ),
             (
                 {
-                    FABLE.FABLE_MODEL: {"outputTokens": 12},
+                    legacy_model: {"outputTokens": 12},
                     resolved_primary: {"outputTokens": 12},
                     FABLE.FABLE_HELPER_MODEL: {"outputTokens": 1},
                 },
                 sorted(
                     (
-                        FABLE.FABLE_MODEL,
+                        legacy_model,
                         resolved_primary,
                         FABLE.FABLE_HELPER_MODEL,
                     )
@@ -617,14 +628,14 @@ class FableAdvisorMcpTests(unittest.TestCase):
                     model_usage=model_usage,
                 )
                 self.assertEqual(result["decision"], "PLAN_APPROVED")
-                self.assertEqual(result["model"], FABLE.FABLE_MODEL)
+                self.assertEqual(result["model"], legacy_model)
                 self.assertEqual(result["used_models"], expected_models)
 
         secret = "TOP-SECRET-MODEL-OUTPUT"
         rejected_scenarios = (
             (
                 {
-                    FABLE.FABLE_MODEL: {"outputTokens": 12},
+                    legacy_model: {"outputTokens": 12},
                     "claude-haiku-4-5-20251002": {"outputTokens": 1},
                 },
                 "outside the allowed Fable runtime policy",
@@ -646,6 +657,41 @@ class FableAdvisorMcpTests(unittest.TestCase):
                         model_usage=model_usage,
                     )
                 self.assertNotIn(secret, str(failure.exception))
+
+    def test_fable_5_1_runtime_policy_is_primary_only_until_qualified(self) -> None:
+        result, calls = self.invoke_with_results(
+            FABLE.review_plan,
+            "packet",
+            model_response="PLAN_APPROVED\nNo material gap found.",
+            model_usage={FABLE.FABLE_MODEL: {"outputTokens": 12}},
+        )
+        self.assertEqual(result["model"], "claude-fable-5-1")
+        self.assertEqual(result["used_models"], ["claude-fable-5-1"])
+        review_command = calls[1][0]
+        self.assertEqual(
+            review_command[review_command.index("--model") + 1],
+            "claude-fable-5-1",
+        )
+
+        for unqualified in (
+            "claude-fable-5",
+            "claude-opus-4-8",
+            FABLE.FABLE_HELPER_MODEL,
+        ):
+            with self.subTest(unqualified=unqualified):
+                with self.assertRaisesRegex(
+                    FABLE.AdvisorError,
+                    "outside the allowed Fable runtime policy",
+                ):
+                    self.invoke_with_results(
+                        FABLE.review_plan,
+                        "packet",
+                        model_response="PLAN_APPROVED\nNo material gap found.",
+                        model_usage={
+                            FABLE.FABLE_MODEL: {"outputTokens": 12},
+                            unqualified: {"outputTokens": 1},
+                        },
+                    )
 
     def test_runtime_model_usage_values_fail_closed(self) -> None:
         malformed_values = (
@@ -686,10 +732,7 @@ class FableAdvisorMcpTests(unittest.TestCase):
             {FABLE.FABLE_MODEL: {"outputTokens": 0}},
             {FABLE.FABLE_MODEL: {"outputTokens": 10**309}},
             {FABLE.FABLE_MODEL: {"costUSD": 0.25, "outputTokens": 12}},
-            {
-                FABLE.FABLE_MODEL: {"outputTokens": 12},
-                FABLE.FABLE_HELPER_MODEL: {"outputTokens": 1},
-            },
+            {FABLE.FABLE_MODEL: {"inputTokens": 1, "outputTokens": 12}},
         ):
             with self.subTest(valid_usage=usage):
                 result, _ = self.invoke_with_results(
@@ -704,18 +747,6 @@ class FableAdvisorMcpTests(unittest.TestCase):
         self,
     ) -> None:
         usage = {
-            FABLE.FABLE_HELPER_MODEL: {
-                "inputTokens": 523,
-                "outputTokens": 11,
-                "cacheReadInputTokens": 0,
-                "cacheCreationInputTokens": 0,
-                "webSearchRequests": 0,
-                "costUSD": 0.0005780000000000001,
-                "contextWindow": 200000,
-                "maxOutputTokens": 32000,
-                "canonicalModel": "claude-haiku-4-5",
-                "provider": "firstParty",
-            },
             FABLE.FABLE_MODEL: {
                 "inputTokens": 187,
                 "outputTokens": 4,
@@ -740,7 +771,7 @@ class FableAdvisorMcpTests(unittest.TestCase):
         self.assertEqual(result["decision"], "PLAN_APPROVED")
         self.assertEqual(
             result["used_models"],
-            sorted((FABLE.FABLE_HELPER_MODEL, FABLE.FABLE_MODEL)),
+            [FABLE.FABLE_MODEL],
         )
 
     def test_runtime_model_usage_identity_metadata_fails_closed(self) -> None:
@@ -831,6 +862,11 @@ class FableAdvisorMcpTests(unittest.TestCase):
             FABLE.load_fable_route(self.home)
         self.write_state(schema=5, advisor=self.route())
         self.assertEqual(FABLE.load_fable_route(self.home)["model"], FABLE.FABLE_MODEL)
+        self.write_state(schema=5, advisor=self.legacy_fable_route())
+        self.assertEqual(
+            FABLE.load_fable_route(self.home)["model"],
+            FABLE.LEGACY_FABLE_MODEL,
+        )
 
     def test_opus_route_pins_primary_and_rejects_every_unverified_helper(self) -> None:
         self.write_state(schema=6, advisor=self.opus_route("xhigh"))

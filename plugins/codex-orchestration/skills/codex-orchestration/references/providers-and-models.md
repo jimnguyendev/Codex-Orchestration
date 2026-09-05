@@ -13,6 +13,12 @@ The default lanes are exact direct child routes on the active Codex provider:
 | Routine, bounded, low-risk | `gpt-5.6-luna` | `max` | `fork_turns=none` |
 | Hard, ambiguous, or high-risk | `gpt-5.6-terra` | `max` | `fork_turns=none` |
 
+If the current task is already a GPT-6 Astra root (`gpt-6-astra`), hard/risky work
+stays in root instead of being downgraded to Terra. A direct Astra child route is
+valid only when the active callable model catalog exposes the exact `gpt-6-astra`
+ID; otherwise report it unavailable without substitution. Luna remains available
+for genuinely routine, bounded slices.
+
 The active task model remains root. A direct child route cannot silently cross to a
 different provider. Exact route acceptance still depends on the current task's tool
 schema and model catalog; a saved policy or visible model description does not prove
@@ -54,9 +60,9 @@ ambiguous, concurrently replaced, or incompatible state. `status` validates poli
 consistency; it does not perform a child model call.
 
 Persistent setup stores Luna as the routine Executor and generates an exact Terra Max
-hard/risky lane in both managed hints. New setup rejects every persistent Executor
+hard/risky lane for non-Astra roots in both managed hints. New setup rejects every persistent Executor
 other than `gpt-5.6-luna@max`, including custom agents. Since classification still
-happens per task, task-local routing remains the simplest path. A pre-0.10 managed hint pair is reported
+happens per task, task-local routing remains the simplest path. A pre-0.11 managed hint pair is reported
 as `legacy workflow active` until one explicit setup replaces the hints or the policy
 is disabled. Its state stays readable for status, repair, and disable. The historical
 saved Executor fallback remains accepted for compatibility but is not the hard-task
@@ -68,30 +74,36 @@ Luna Max setup can create new bounded restore state after review.
 
 ## Claude subscription routes
 
-Claude Fable 5 and Claude Opus 5 are optional Planner or Advisor routes. Both use the
-official Claude Code CLI and the existing first-party login. They are never default
-implementation workers.
+Claude Fable 5.1 and Claude Opus 5 are optional Planner or Advisor routes. They use
+the official Claude Code CLI and an existing first-party Pro, Max, or Team login.
+They are never default implementation workers. Fresh Fable setup selects 5.1; the
+older Fable row is retained only for exact saved-state compatibility.
 
 Sealed contracts:
 
 | Provider ID | Model ID | Seats | Efforts |
 | --- | --- | --- | --- |
+| `claude-fable` | `claude-fable-5-1` | Planner or Advisor | `low`, `medium`, `high`, `xhigh`, `max` |
 | `claude-fable` | `claude-fable-5` | Planner or Advisor | `low`, `medium`, `high`, `xhigh`, `max` |
 | `claude-opus` | `claude-opus-5` | Planner or Advisor | `low`, `medium`, `high`, `xhigh`, `max` |
 
 Only one bundled Claude subscription seat may be saved. Planner operations are
 `create_plan` and `revise_plan`; Advisor uses `review_plan`. The bridge runs without
 tools or session persistence, pins model and effort, minimizes inherited environment,
-and validates runtime model metadata. Opus requires Claude Code 2.1.219 or newer.
+and validates runtime model metadata. Fable 5.1 requires Claude Code 2.1.255 or newer
+and remains primary-only until its fallback/helper identities are live-qualified.
+The legacy Fable 5 runtime allowlist is not inherited. Opus requires Claude Code
+2.1.219 or newer.
 
 Setup and status may check version, supported flags, and first-party authentication,
 but they do not make a planning/review model call. Never expose tokens or account
-metadata. The plugin does not create Claude credentials.
+metadata. The plugin does not create Claude credentials or replace Team login with
+an API key.
 
 ## Custom agents and other providers
 
 `configure_orchestration.py` may create a bounded custom role only after the user asks
-for one, but 0.10 emits no `model_provider`. A project role belongs in `.codex/agents/`;
+for one, but 0.11 emits no `model_provider`. A project role belongs in `.codex/agents/`;
 a personal role belongs under the active Codex home. A project role can shadow a
 personal role with the same name, so status must fail closed on ambiguity. The retired
 provider flags are rejected before any write. Existing managed provider-pinned role

@@ -11,15 +11,18 @@ flowchart TD
     R --> C{"Phân loại một lần"}
     C -->|"Quá nhỏ"| R
     C -->|"Routine, rõ, ít rủi ro"| L["GPT-5.6 Luna Max"]
-    C -->|"Khó, mơ hồ hoặc rủi ro cao"| T["GPT-5.6 Terra Max"]
+    C -->|"Hard/risky, Root là GPT-6 Astra"| R
+    C -->|"Hard/risky, Root khác"| T["GPT-5.6 Terra Max"]
     L --> H["Handoff: diff, checks, rủi ro còn lại"]
     T --> H
     H --> V["Root đọc diff và chạy verification"]
     V --> O["Kết quả cuối cho người dùng"]
 ```
 
-Nếu Luna phát hiện rủi ro ẩn, Luna dừng trước khi mở rộng scope. Root cập nhật
-packet và có thể thử Terra đúng một lần; không chạy hai lane cạnh tranh.
+Nếu Luna phát hiện rủi ro ẩn, Luna dừng trước khi mở rộng scope. Astra Root giữ
+việc khó ở Root; Root khác có thể cập nhật packet và thử Terra đúng một lần.
+Không chạy hai lane cạnh tranh. Direct `gpt-6-astra` child chỉ hợp lệ khi catalog
+callable hiện tại có đúng ID đó.
 
 ## Thành phần
 
@@ -28,7 +31,7 @@ flowchart LR
     subgraph Repo["Plugin package"]
         S["SKILL.md\nquy tắc routing"]
         N["configure_native_routing.py\nsetup, status, repair, disable"]
-        B["Fable/Opus MCP bridge\nplanning và review read-only"]
+        B["Fable 5.1/Opus 5 MCP bridge\nplanning và review read-only"]
         ST["State validators\nCAS, lock, restore"]
     end
 
@@ -39,7 +42,7 @@ flowchart LR
     end
 
     subgraph Optional["Provider tùy chọn"]
-        CC["Claude Code CLI\nfirst-party login"]
+        CC["Claude Code CLI\nfirst-party Pro/Max/Team login"]
     end
 
     S --> A

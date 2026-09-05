@@ -23,7 +23,7 @@ Codex engine phải schedule, load hoặc gọi thành công một model.
 | Chạy implementation hai lần | Quyền retry được consume trước khi gọi fallback. Mọi field ngoài `model` và `reasoning_effort` phải giữ nguyên; sau retry phải dừng. |
 | Race khi ghi config/state | Setup và disable dùng App Server version check, digest compare-and-swap và installer lock. State đổi giữa chừng phải được giữ nguyên, còn config write phải rollback. |
 | Bỏ qua lock theo hệ điều hành | Chỉ ghi khi host có `fcntl` hoặc Windows `msvcrt` byte-range locking. Không có backend phù hợp thì dừng trước mutation. |
-| Lệch version payload | Manifest, package, lifecycle fixture, validator và tài liệu phải cùng version 0.10.3. Release check từ chối version không đồng bộ hoặc state schema không biết. |
+| Lệch version payload | Manifest, package, lifecycle fixture, validator và tài liệu phải cùng version 0.11.0. Release check từ chối version không đồng bộ hoặc state schema không biết. |
 
 Permission, authentication, provider, rate limit, timeout, cancellation và lỗi
 thực thi thông thường đều là negative case: không retry và báo thất bại.

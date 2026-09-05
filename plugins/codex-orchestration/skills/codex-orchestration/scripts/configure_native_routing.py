@@ -39,6 +39,8 @@ except ImportError:  # pragma: no cover - expected on non-Windows hosts
 from routing_state import (
     FABLE_EFFORTS,
     FABLE_MODEL,
+    FABLE_MODELS,
+    LEGACY_FABLE_MODEL,
     MANAGED_MARKER,
     OPUS_EFFORTS,
     OPUS_MODEL,
@@ -56,9 +58,10 @@ except ModuleNotFoundError as exc:  # pragma: no cover - Python < 3.11
 
 POLICY_VERSION = 6
 STATE_SCHEMA = 6
-TWO_LANE_POLICY_MARKER = "[codex-orchestration workflow 0.10 two-lane]"
+TWO_LANE_POLICY_MARKER = "[codex-orchestration workflow 0.11 model-aware]"
 ROUTINE_MODEL = "gpt-5.6-luna"
 HARD_MODEL = "gpt-5.6-terra"
+FRONTIER_MODEL = "gpt-6-astra"
 LANE_EFFORT = "max"
 STATE_FILENAME = ".codex-orchestration-routing.json"
 PROBE_VALUE = "CODEX_ORCHESTRATION_CAPABILITY_PROBE"
@@ -68,6 +71,7 @@ FABLE_EFFORT_CHOICES = ("low", "medium", "high", "xhigh", "max")
 FABLE_EFFORT_ALIASES = {"ultra": "max"}
 OPUS_DEFAULT_EFFORT = "high"
 OPUS_MIN_CLAUDE_VERSION = (2, 1, 219)
+FABLE_MIN_CLAUDE_VERSION = (2, 1, 255)
 FABLE_SERVERS = {
     "fable-advisor-python3": ("python3", []),
     "fable-advisor-python": ("python", []),
@@ -121,16 +125,16 @@ def parse_args() -> argparse.Namespace:
     executor = parser.add_mutually_exclusive_group()
     executor.add_argument(
         "--executor-model",
-        help="Persistent 0.10 setup requires gpt-5.6-luna.",
+        help="Persistent 0.11 setup requires gpt-5.6-luna.",
     )
     executor.add_argument(
         "--executor-agent",
-        help="Legacy input retained for validation; 0.10 persistent setup rejects it.",
+        help="Legacy input retained for validation; 0.11 persistent setup rejects it.",
     )
     parser.add_argument(
         "--executor-effort",
         default="auto",
-        help="Persistent 0.10 setup requires max; auto resolves to max for Luna.",
+        help="Persistent 0.11 setup requires max; auto resolves to max for Luna.",
     )
     executor_fallback = parser.add_mutually_exclusive_group()
     executor_fallback.add_argument(
@@ -154,7 +158,7 @@ def parse_args() -> argparse.Namespace:
     planner.add_argument(
         "--planner-fable",
         action="store_true",
-        help="Use the bundled Claude Fable 5 planner through Claude Code.",
+        help="Use the bundled Claude Fable 5.1 planner through Claude Code.",
     )
     planner.add_argument(
         "--planner-opus",
@@ -173,7 +177,7 @@ def parse_args() -> argparse.Namespace:
     advisor.add_argument(
         "--advisor-fable",
         action="store_true",
-        help="Use the bundled Claude Fable 5 advisor through Claude Code.",
+        help="Use the bundled Claude Fable 5.1 advisor through Claude Code.",
     )
     advisor.add_argument(
         "--advisor-opus",
@@ -331,7 +335,7 @@ def _validate_args(args: argparse.Namespace) -> None:
     ):
         if value is not None and not pattern.fullmatch(value):
             raise ConfigurationError(f"Invalid {label}: {value!r}.")
-        if "model" in label and value in {FABLE_MODEL, OPUS_MODEL}:
+        if "model" in label and value in {*FABLE_MODELS, OPUS_MODEL}:
             raise ConfigurationError(
                 f"{label.title()} {value!r} is a reserved Claude model ID; "
                 "select its bundled sealed route instead."
@@ -351,7 +355,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         or args.executor_effort not in {"auto", LANE_EFFORT}
     ):
         raise ConfigurationError(
-            "Version 0.10 persistent setup requires the exact routine Executor "
+            "Version 0.11 persistent setup requires the exact routine Executor "
             f"{ROUTINE_MODEL}@{LANE_EFFORT}. Arbitrary and custom Executor routes "
             "remain task-local; existing saved routes are available only through "
             "status, repair, and disable."
@@ -366,7 +370,7 @@ def normalize_fable_effort(value: str) -> str:
     if effective not in FABLE_EFFORTS:
         supported = ", ".join((*FABLE_EFFORT_CHOICES, *FABLE_EFFORT_ALIASES))
         raise ConfigurationError(
-            f"Claude Fable 5 effort must be one of: {supported}."
+            f"Claude Fable 5.1 effort must be one of: {supported}."
         )
     return effective
 
@@ -522,7 +526,7 @@ class AppServer:
                     "clientInfo": {
                         "name": "codex_orchestration_installer",
                         "title": "Codex Orchestration Installer",
-                        "version": "0.10.3",
+                        "version": "0.11.0",
                     },
                     "capabilities": {"experimentalApi": True},
                 },
@@ -1080,14 +1084,23 @@ def _parse_claude_version(output: str) -> tuple[int, int, int]:
         ) from exc
 
 
-def verify_claude_prerequisites(model: str, effort: str) -> dict[str, str]:
-    display_name = (
-        "Claude Fable 5" if model == FABLE_MODEL else "Claude Opus 5"
-        if model == OPUS_MODEL
-        else None
-    )
-    if display_name is None:
+def _claude_model_display_name(model: str) -> str:
+    names = {
+        FABLE_MODEL: "Claude Fable 5.1",
+        LEGACY_FABLE_MODEL: "Claude Fable 5",
+        OPUS_MODEL: "Claude Opus 5",
+    }
+    if model not in names:
         raise ConfigurationError("The bundled Claude model is not sealed.")
+    return names[model]
+
+
+def verify_claude_prerequisites(model: str, effort: str) -> dict[str, str]:
+    display_name = _claude_model_display_name(model)
+    minimum_version = {
+        FABLE_MODEL: FABLE_MIN_CLAUDE_VERSION,
+        OPUS_MODEL: OPUS_MIN_CLAUDE_VERSION,
+    }.get(model)
     try:
         from fable_advisor_mcp import (
             AdvisorError,
@@ -1111,7 +1124,7 @@ def verify_claude_prerequisites(model: str, effort: str) -> dict[str, str]:
                 timeout=PROBE_TIMEOUT_SECONDS,
                 check=False,
             )
-            if model == OPUS_MODEL
+            if minimum_version is not None
             else None
         )
         help_result = subprocess.run(
@@ -1133,14 +1146,14 @@ def verify_claude_prerequisites(model: str, effort: str) -> dict[str, str]:
             )
         installed_version = _parse_claude_version(version_result.stdout)
     if (
-        model == OPUS_MODEL
+        minimum_version is not None
         and installed_version is not None
-        and installed_version < OPUS_MIN_CLAUDE_VERSION
+        and installed_version < minimum_version
     ):
-        required = ".".join(map(str, OPUS_MIN_CLAUDE_VERSION))
+        required = ".".join(map(str, minimum_version))
         observed = ".".join(map(str, installed_version))
         raise ConfigurationError(
-            f"Claude Opus 5 requires Claude Code {required} or newer; "
+            f"{display_name} requires Claude Code {required} or newer; "
             f"found {observed}."
         )
     required = (
@@ -1180,7 +1193,7 @@ def verify_claude_prerequisites(model: str, effort: str) -> dict[str, str]:
         else set()
     )
     if effort not in advertised_efforts:
-        effort_label = "Fable" if model == FABLE_MODEL else display_name
+        effort_label = "Fable" if model in FABLE_MODELS else display_name
         raise ConfigurationError(
             f"Claude Code does not advertise {effort_label} effort {effort!r}; "
             "update Claude Code or choose a supported effort."
@@ -1204,7 +1217,7 @@ def _route_summary(route: dict[str, Any]) -> str:
     if route["kind"] == "agent":
         return f"custom agent {route['agent']}"
     if route["kind"] == "fable":
-        return f"Claude Fable 5 {route['effort']}"
+        return f"{_claude_model_display_name(route['model'])} {route['effort']}"
     if route["kind"] == "claude_subscription":
         return f"Claude Opus 5 {route['effort']}"
     return f"{route['model']}@{route['effort']}"
@@ -1362,6 +1375,8 @@ This adds model routing to Codex's existing multi-agent flow; it is not a second
 
 If you are the root task model, you are the orchestrator. Own intent, planning, architecture, decomposition, delegation, integration, review, final verification, and the user-facing answer. Codex still decides whether a plan or subagent helps, how many independent slices exist, and what can run safely in parallel. Keep simple, tightly coupled, context-heavy, or root-owned work with the root. Do not delegate merely to prove the policy is active.
 
+When the root task model is GPT-6 Astra, keep hard/risky work in root; do not downgrade it to Terra. A direct child route to `{FRONTIER_MODEL}` is allowed only when the current callable model catalog exposes that exact ID; otherwise fail closed without substitution. Luna remains available for genuinely routine, bounded slices.
+
 {planner_mode}
 
 {advisor_mode}
@@ -1372,7 +1387,7 @@ If you are the root task model, you are the orchestrator. Own intent, planning, 
 
 The root owns planning, findings, validation, adjudication, and release to implementation. There is no automatic planning or review loop and no Finalizer seat.
 
-Before implementation delegation, classify the task once. Keep trivial work in root. Apply a warm-root gate: if root already holds the implementation context, owned paths overlap dirty integration, or a cold child must rediscover several packages, keep the work in root. Use the configured Executor as the routine lane only for bounded, well-specified, low-risk work with a known change surface. File count is advisory, never a hard eligibility limit: a coherent mechanical or low-risk change in one module may remain Luna work even when it touches more than three files. A slice spanning database schema, migration, seed, API wiring, and tests is hard/state work even when bounded. Route by contract, state boundaries, ambiguity, and blast radius. Use the exact hard/risky lane `model = {HARD_MODEL!r}, reasoning_effort = {LANE_EFFORT!r}, fork_turns = "none"` for security, authentication, state, destructive behavior, migrations, concurrency, unclear legacy contracts, broad refactors, or other material ambiguity and blast radius. When uncertain, use the hard/risky lane. If Luna discovers hidden risk, stop, correct the packet, and make at most one Terra attempt; never run both lanes competitively or resend an unchanged prompt.
+Before implementation delegation, classify the task once. Keep trivial work in root. Apply a warm-root gate: if root already holds the implementation context, owned paths overlap dirty integration, or a cold child must rediscover several packages, keep the work in root. Use the configured Executor as the routine lane only for bounded, well-specified, low-risk work with a known change surface. File count is advisory, never a hard eligibility limit: a coherent mechanical or low-risk change in one module may remain Luna work even when it touches more than three files. A slice spanning database schema, migration, seed, API wiring, and tests is hard/state work even when bounded. Route by contract, state boundaries, ambiguity, and blast radius. For root models other than GPT-6 Astra, use the exact hard/risky lane `model = {HARD_MODEL!r}, reasoning_effort = {LANE_EFFORT!r}, fork_turns = "none"` for security, authentication, state, destructive behavior, migrations, concurrency, unclear legacy contracts, broad refactors, or other material ambiguity and blast radius. When uncertain, use the applicable hard/risky rule. If Luna discovers hidden risk, stop, correct the packet, and make at most one applicable hard-lane attempt; never run lanes competitively or resend an unchanged prompt.
 
 Give each worker one bounded packet with OBJECTIVE, OWNERSHIP, CONTRACTS, DONE WHEN, and VERIFY AND RETURN. Do not copy the full transcript, plan, logs, or files the worker can inspect. Every Luna packet must add FIRST ARTIFACT and READ BUDGET stop conditions: at most three batched discovery tool calls before the first edit or exact regression, and within 120 seconds create the smallest safe artifact or return BLOCKED. At that gate root inspects the owned-path diff before messaging or declaring a stall. With no artifact, request one checkpoint and allow at most 60 more seconds. With a partial artifact but no new artifact for 180 seconds, request one checkpoint, allow at most 60 more seconds, and stop the seat. Before interrupting snapshot the owned diff; after interrupting wait for terminal state, snapshot again, and reconcile every partial edit before root touches the same paths or claims no changes. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits. Inspect every handoff, integrate it, and run final checks yourself.
 
@@ -1440,9 +1455,11 @@ Planner and Advisor are policy-isolated, root-directed seats: they cannot contac
 {TWO_LANE_POLICY_MARKER}
 If you are the root task model, you are the orchestrator. Apply these routes only to children you decide to create.
 
+When the root task model is GPT-6 Astra, keep hard/risky work in root; do not downgrade it to Terra. Use `{FRONTIER_MODEL}` as a direct child route only when the current callable model catalog exposes that exact ID; otherwise fail closed. Luna remains available for genuinely routine, bounded slices.
+
 {route_binding}
 
-Classify before spawning. Keep trivial or warm-root work in root. File count is advisory, not a hard Luna limit: a coherent mechanical or low-risk change in one module may touch more than three files. Schema + migration + seed + API + tests is Terra/state work even when bounded; route by contract, state boundaries, ambiguity, and blast radius. For routine, bounded, well-specified, low-risk work that passes this gate, call this tool with {_spawn_route(executor)}, fork_turns = "none". For hard, ambiguous, or high-risk work, call it with model = "{HARD_MODEL}", reasoning_effort = "{LANE_EFFORT}", fork_turns = "none". When uncertain, use Terra. Send only the five-part bounded task packet; do not copy the full conversation. A Luna packet must require a first artifact within 120 seconds and no more than three batched discovery calls before it; otherwise return BLOCKED. Root must inspect and snapshot the owned diff before declaring a stall or interrupting, then wait for terminal state and reconcile partial edits before takeover. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits.
+Classify before spawning. Keep trivial or warm-root work in root. File count is advisory, not a hard Luna limit: a coherent mechanical or low-risk change in one module may touch more than three files. Schema + migration + seed + API + tests is state work even when bounded; route by contract, state boundaries, ambiguity, and blast radius. For routine, bounded, well-specified, low-risk work that passes this gate, call this tool with {_spawn_route(executor)}, fork_turns = "none". For hard, ambiguous, or high-risk work under a root model other than GPT-6 Astra, call it with model = "{HARD_MODEL}", reasoning_effort = "{LANE_EFFORT}", fork_turns = "none". When uncertain, use the applicable hard/risky rule. Send only the five-part bounded task packet; do not copy the full conversation. A Luna packet must require a first artifact within 120 seconds and no more than three batched discovery calls before it; otherwise return BLOCKED. Root must inspect and snapshot the owned diff before declaring a stall or interrupting, then wait for terminal state and reconcile partial edits before takeover. The timing, read-call, and token limits are orchestration policy instructions and stop conditions, not host-enforced limits.
 
 Routine tasks use zero Planner or Advisor calls by default. Across all tasks, the default budget is at most one Planner-or-Advisor model call total after an explicit current-task request or repository/risk gate. Reserve it for an exact final-tree review when that gate is mandatory. PLAN_REVISE or any finding never authorizes a second call; root fixes locally and asks the user before model re-review. Only an explicit current-task instruction may enlarge this budget.
 
@@ -1688,7 +1705,7 @@ def _status(
             elif not _is_two_lane_policy(current):
                 routing_state = (
                     "legacy workflow active; run a fresh explicit setup to install "
-                    "the 0.10 two-lane policy, or disable it"
+                    "the 0.11 model-aware policy, or disable it"
                 )
             elif not controls_ready:
                 routing_state = "managed hints found but routing controls are incomplete"
@@ -1715,13 +1732,13 @@ def _status(
             print(
                 "Recovery: existing state remains valid for status, repair, and "
                 "disable; run one explicit setup to replace only the managed hints "
-                "with the 0.10 two-lane workflow."
+                "with the 0.11 model-aware workflow."
             )
         elif routing_state == "managed hints found without saved state":
             print(
                 "Recovery: saved restore state is missing, so repair and disable are "
                 "unavailable. Review the managed hints, then run one fresh explicit "
-                "setup to create the 0.10 two-lane policy and new restore state."
+                "setup to create the 0.11 model-aware policy and new restore state."
             )
         print(
             "V2 activation: not inferred by the installer; choose a v2 root "
@@ -1754,11 +1771,7 @@ def _status(
                 and route.get("kind") in {"fable", "claude_subscription"}
             ]
             for route in subscription_routes:
-                label = (
-                    "Claude Fable 5"
-                    if route["model"] == FABLE_MODEL
-                    else "Claude Opus 5"
-                )
+                label = _claude_model_display_name(route["model"])
                 try:
                     verify_claude_prerequisites(route["model"], route["effort"])
                 except ConfigurationError as exc:
@@ -2220,11 +2233,7 @@ def _repair(
             if isinstance(route, dict)
             and route.get("kind") in {"fable", "claude_subscription"}
         )
-        label = (
-            "Claude Fable 5"
-            if configured_model == FABLE_MODEL
-            else "Claude Opus 5"
-        )
+        label = _claude_model_display_name(configured_model)
         print(
             f"This repair does not change {label} authentication or request "
             "re-authentication."
@@ -2770,10 +2779,8 @@ def main() -> int:
                     if isinstance(route, dict)
                     and route.get("kind") in {"fable", "claude_subscription"}
                 )
-                subscription_label = (
-                    "Claude Opus 5"
-                    if configured_subscription.get("model") == OPUS_MODEL
-                    else "Claude Fable 5"
+                subscription_label = _claude_model_display_name(
+                    configured_subscription["model"]
                 )
                 print(
                     f"{subscription_label} login: ready — first-party; "

@@ -27,13 +27,21 @@ def snapshot(value: object = None, *, present: bool = False) -> dict[str, object
     return saved
 
 
-def fable_route(server: str = "fable-advisor-python3") -> dict[str, str]:
+def fable_route(
+    server: str = "fable-advisor-python3",
+    *,
+    model: str = "claude-fable-5-1",
+) -> dict[str, str]:
     return {
         "kind": "fable",
-        "model": STATE.FABLE_MODEL,
+        "model": model,
         "effort": "high",
         "server": server,
     }
+
+
+def legacy_fable_route(server: str = "fable-advisor-python3") -> dict[str, str]:
+    return fable_route(server, model="claude-fable-5")
 
 
 def opus_route(server: str = "fable-advisor-python3") -> dict[str, str]:
@@ -129,6 +137,20 @@ class RoutingStateTests(unittest.TestCase):
             "usage_hint_text": managed["usage"],
         }
         self.assertIs(STATE.validate_routing_state(state), state)
+
+    def test_current_and_legacy_fable_routes_are_both_sealed(self) -> None:
+        for route in (fable_route(), legacy_fable_route()):
+            with self.subTest(model=route["model"]):
+                state = genuine_state(6)
+                state["planner"] = route
+                refresh_binding(state)
+                self.assertIs(STATE.validate_routing_state(state), state)
+
+        state = genuine_state(6)
+        state["planner"] = fable_route(model="claude-fable-5-1-preview")
+        refresh_binding(state)
+        with self.assertRaisesRegex(STATE.RoutingStateError, "not pinned"):
+            STATE.validate_routing_state(state)
 
     def test_full_negative_invariant_matrix_fails_closed(self) -> None:
         baseline = genuine_state(6)
@@ -259,7 +281,11 @@ class RoutingStateTests(unittest.TestCase):
         }
         for schema, seats in seats_by_schema.items():
             for seat in seats:
-                for model in (STATE.FABLE_MODEL, STATE.OPUS_MODEL):
+                for model in (
+                    STATE.FABLE_MODEL,
+                    STATE.LEGACY_FABLE_MODEL,
+                    STATE.OPUS_MODEL,
+                ):
                     with self.subTest(schema=schema, seat=seat, model=model):
                         invalid = genuine_state(schema)
                         invalid[seat] = {

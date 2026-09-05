@@ -21,12 +21,16 @@ SPEC.loader.exec_module(SUBSCRIPTION)
 class ExternalSubscriptionTests(unittest.TestCase):
     def test_only_sealed_subscription_provider_model_pairs_are_allowed(self) -> None:
         provider, effort = SUBSCRIPTION.validate_route(
-            "claude-fable", "claude-fable-5", "high", "create_plan"
+            "claude-fable", "claude-fable-5-1", "high", "create_plan"
         )
         self.assertEqual(
             provider["subscription_adapter"]["module"], "fable_advisor_mcp"
         )
         self.assertEqual(effort, "high")
+        _, legacy_effort = SUBSCRIPTION.validate_route(
+            "claude-fable", "claude-fable-5", "max", "review_plan"
+        )
+        self.assertEqual(legacy_effort, "max")
         opus, opus_effort = SUBSCRIPTION.validate_route(
             "claude-opus", "claude-opus-5", "xhigh", "review_plan"
         )
@@ -37,8 +41,9 @@ class ExternalSubscriptionTests(unittest.TestCase):
             ("claude-fable", "claude-other", "high", "create_plan"),
             ("claude-fable", "claude-opus-5", "high", "create_plan"),
             ("claude-opus", "claude-fable-5", "high", "create_plan"),
-            ("claude-fable", "claude-fable-5", "extreme", "create_plan"),
-            ("claude-fable", "claude-fable-5", "high", "general_prompt"),
+            ("claude-fable", "claude-fable-5-1-preview", "high", "create_plan"),
+            ("claude-fable", "claude-fable-5-1", "extreme", "create_plan"),
+            ("claude-fable", "claude-fable-5-1", "high", "general_prompt"),
         ):
             with self.subTest(values=values):
                 with self.assertRaises(
@@ -50,7 +55,7 @@ class ExternalSubscriptionTests(unittest.TestCase):
         with mock.patch.object(
             SUBSCRIPTION.fable_advisor_mcp,
             "load_fable_route",
-            return_value={"model": "claude-fable-5", "effort": "high"},
+            return_value={"model": "claude-fable-5-1", "effort": "high"},
         ), mock.patch.object(
             SUBSCRIPTION.fable_advisor_mcp,
             "resolve_claude",
@@ -67,15 +72,15 @@ class ExternalSubscriptionTests(unittest.TestCase):
 
     def test_invoke_preserves_existing_no_tools_bridge_and_runtime_identity(self) -> None:
         expected = {
-            "model": "claude-fable-5",
+            "model": "claude-fable-5-1",
             "effort": "high",
-            "used_models": ["claude-fable-5"],
+            "used_models": ["claude-fable-5-1"],
             "signal": "PLAN_DRAFT",
         }
         with mock.patch.object(
             SUBSCRIPTION.fable_advisor_mcp,
             "load_fable_route",
-            return_value={"model": "claude-fable-5", "effort": "high"},
+            return_value={"model": "claude-fable-5-1", "effort": "high"},
         ), mock.patch.object(
             SUBSCRIPTION.fable_advisor_mcp, "create_plan", return_value=expected
         ) as create:
@@ -109,7 +114,9 @@ class ExternalSubscriptionTests(unittest.TestCase):
             ):
                 self.assertIs(
                     SUBSCRIPTION.invoke(
-                        "create_plan", {"packet": "bounded planning packet"}
+                        "create_plan",
+                        {"packet": "bounded planning packet"},
+                        model="claude-fable-5",
                     ),
                     expected,
                 )
@@ -122,12 +129,12 @@ class ExternalSubscriptionTests(unittest.TestCase):
         with mock.patch.object(
             SUBSCRIPTION.fable_advisor_mcp,
             "load_fable_route",
-            return_value={"model": "claude-fable-5", "effort": "high"},
+            return_value={"model": "claude-fable-5-1", "effort": "high"},
         ), mock.patch.object(
             SUBSCRIPTION.fable_advisor_mcp,
             "create_plan",
             return_value={
-                "model": "claude-fable-5",
+                "model": "claude-fable-5-1",
                 "effort": "high",
                 "used_models": [],
             },

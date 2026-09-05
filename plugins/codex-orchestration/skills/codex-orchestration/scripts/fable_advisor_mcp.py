@@ -26,6 +26,8 @@ import routing_state
 STATE_FILENAME = ".codex-orchestration-routing.json"
 MANAGED_MARKER = routing_state.MANAGED_MARKER
 FABLE_MODEL = routing_state.FABLE_MODEL
+LEGACY_FABLE_MODEL = routing_state.LEGACY_FABLE_MODEL
+FABLE_MODELS = routing_state.FABLE_MODELS
 OPUS_MODEL = routing_state.OPUS_MODEL
 FABLE_SERVERS = routing_state.FABLE_SERVERS
 SUPPORTED_EFFORTS = routing_state.FABLE_EFFORTS
@@ -35,24 +37,35 @@ SUPPORTED_EFFORTS = routing_state.FABLE_EFFORTS
 FABLE_HELPER_MODEL = "claude-haiku-4-5-20251001"
 FABLE_RESOLVED_PRIMARY_MODEL = "claude-opus-4-8"
 REVIEWED_PRIMARY_MODELS_BY_ROUTE = {
-    FABLE_MODEL: frozenset({FABLE_MODEL, FABLE_RESOLVED_PRIMARY_MODEL}),
+    # Fable 5.1 is sealed primary-only until its first-party runtime metadata
+    # has been independently qualified. Do not inherit Fable 5 fallbacks.
+    FABLE_MODEL: frozenset({FABLE_MODEL}),
+    LEGACY_FABLE_MODEL: frozenset(
+        {LEGACY_FABLE_MODEL, FABLE_RESOLVED_PRIMARY_MODEL}
+    ),
     # The resolved Fable identity is not an alias for the separately sealed
     # Opus route. Opus remains primary-only until independently re-qualified.
     OPUS_MODEL: frozenset({OPUS_MODEL}),
 }
-ALLOWED_RUNTIME_MODELS = frozenset(
-    {*REVIEWED_PRIMARY_MODELS_BY_ROUTE[FABLE_MODEL], FABLE_HELPER_MODEL}
+LEGACY_FABLE_ALLOWED_RUNTIME_MODELS = frozenset(
+    {
+        *REVIEWED_PRIMARY_MODELS_BY_ROUTE[LEGACY_FABLE_MODEL],
+        FABLE_HELPER_MODEL,
+    }
 )
+ALLOWED_RUNTIME_MODELS = frozenset({FABLE_MODEL})
 ALLOWED_RUNTIME_MODELS_BY_PRIMARY = {
     FABLE_MODEL: ALLOWED_RUNTIME_MODELS,
+    LEGACY_FABLE_MODEL: LEGACY_FABLE_ALLOWED_RUNTIME_MODELS,
     # No Opus helper identity has been independently verified. Fail closed if
     # Claude Code reports anything beyond the sealed primary.
     OPUS_MODEL: frozenset({OPUS_MODEL}),
 }
 CANONICAL_RUNTIME_MODELS_BY_REPORTED_MODEL = {
     FABLE_MODEL: frozenset({FABLE_MODEL}),
+    LEGACY_FABLE_MODEL: frozenset({LEGACY_FABLE_MODEL}),
     FABLE_RESOLVED_PRIMARY_MODEL: frozenset(
-        {FABLE_MODEL, FABLE_RESOLVED_PRIMARY_MODEL}
+        {LEGACY_FABLE_MODEL, FABLE_RESOLVED_PRIMARY_MODEL}
     ),
     FABLE_HELPER_MODEL: frozenset({"claude-haiku-4-5"}),
     OPUS_MODEL: frozenset({OPUS_MODEL}),
@@ -164,6 +177,18 @@ Seat = Literal["planner", "advisor"]
 
 class AdvisorError(RuntimeError):
     """Fail-closed error for any bundled Claude bridge operation."""
+
+
+def claude_model_display_name(model: str) -> str:
+    names = {
+        FABLE_MODEL: "Claude Fable 5.1",
+        LEGACY_FABLE_MODEL: "Claude Fable 5",
+        OPUS_MODEL: "Claude Opus 5",
+    }
+    try:
+        return names[model]
+    except KeyError as exc:
+        raise AdvisorError("The configured Claude primary model is not sealed.") from exc
 
 
 def codex_home() -> Path:
@@ -370,10 +395,8 @@ def _validate_runtime_models(
     reviewed_primaries = REVIEWED_PRIMARY_MODELS_BY_ROUTE.get(primary_model)
     if allowed_models is None or reviewed_primaries is None:
         raise AdvisorError("The configured Claude primary model is not sealed.")
-    policy_label = "Fable" if primary_model == FABLE_MODEL else "Claude"
-    primary_label = (
-        "Claude Fable 5" if primary_model == FABLE_MODEL else "Claude Opus 5"
-    )
+    policy_label = "Fable" if primary_model in FABLE_MODELS else "Claude"
+    primary_label = claude_model_display_name(primary_model)
     if not isinstance(usage, dict):
         raise AdvisorError("Runtime metadata has a malformed modelUsage mapping.")
     raw_models = list(usage)
@@ -544,9 +567,7 @@ def _invoke_fable(
     """Run one stateless, seat-authorized, no-tools Claude operation."""
 
     route = load_fable_route(seat=seat)
-    display_name = (
-        "Claude Fable 5" if route["model"] == FABLE_MODEL else "Claude Opus 5"
-    )
+    display_name = claude_model_display_name(route["model"])
     claude = resolve_claude()
     auth = check_claude_auth(claude)
     command = [

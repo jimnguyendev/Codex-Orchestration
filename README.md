@@ -5,6 +5,8 @@ routes implementation volume through two explicit lanes:
 
 - **GPT-5.6 Luna Max** for routine, bounded, low-risk work.
 - **GPT-5.6 Terra Max** for hard, ambiguous, or high-risk work.
+- **GPT-6 Astra** (`gpt-6-astra`) stays root for hard/risky work when it is the
+  selected task model; the plugin does not downgrade it to Terra.
 
 The root model owns requirements, architecture, integration, verification, and the
 final answer. The plugin does not automatically create Planner, Advisor, Designer, or
@@ -21,9 +23,12 @@ based on CJ Zafir's original project and distributed under the MIT license.
 | --- | --- |
 | Mechanical edits, wiring, CRUD, straightforward tests, localized fixes | Luna Max |
 | Security/auth/state, concurrency, migrations, hard debugging, broad refactors, unclear legacy contracts | Terra Max |
+| The same hard/risky work when GPT-6 Astra is already root | Keep it in Astra root |
 
-When uncertain, route to Terra. Trivial work stays in root when writing a handoff would
-cost more than doing the work.
+For non-Astra roots, when uncertain route to Terra. A direct Astra child is allowed
+only when the active callable model catalog exposes the exact `gpt-6-astra` ID;
+otherwise it fails closed. Trivial work stays in root when writing a handoff would cost
+more than doing the work.
 
 Each child receives a short five-part packet: objective, owned files, contracts, done
 criteria, and verification. Different-model children use `fork_turns=none`; they do not
@@ -58,7 +63,7 @@ codex plugin list --json
 ```
 
 The installed entry should be enabled, point to the canonical Git marketplace, and
-report version 0.10.0 or newer. Fully restart Codex after installing or updating.
+report version 0.11.0 or newer. Fully restart Codex after installing or updating.
 
 Use the skill naturally or explicitly:
 
@@ -72,7 +77,7 @@ $codex-orchestration:codex-orchestration use Terra Max because this migration is
 
 Task-local routing is the default and supports both lanes. Persistent setup stores Luna
 as the routine route and generates an explicit Terra Max hard/risky lane, so use it
-only when you want durable routing hints. Version 0.10 accepts exactly Luna Max as the
+only when you want durable routing hints. Version 0.11 accepts exactly Luna Max as the
 persistent Executor; arbitrary/custom Executor routes stay task-local:
 
 ```text
@@ -91,25 +96,27 @@ $codex-orchestration:codex-orchestration disable
 Setup, repair, and disable are preview-first. The configurator uses Codex App Server
 compare-and-swap, preserves unrelated settings, and stores exact restore values.
 Status proves saved policy consistency, not live child callability. After upgrading a
-policy created before 0.10, strict status reports `legacy workflow active`; run one
+policy created before 0.11, strict status reports `legacy workflow active`; run one
 fresh explicit setup or disable it before relying on the new lanes. Marker-only
 migration preserves an existing validated Fable/Opus seat when that seat is omitted.
 If saved state is missing, status reports that repair and disable are unavailable.
 
 ## Optional Fable and Opus planning
 
-Claude Fable 5 and Claude Opus 5 remain optional sealed Planner or Advisor routes.
-They use the official Claude Code CLI, the existing first-party login, no tools, no
-session persistence, and exact runtime model checks. They are never automatic and are
-not implementation lanes.
+Claude Fable 5.1 and Claude Opus 5 remain optional sealed Planner or Advisor routes.
+They use the official Claude Code CLI, an existing first-party Pro, Max, or Team login,
+no tools, no session persistence, and exact runtime model checks. Fresh Fable setup
+pins `claude-fable-5-1`; saved `claude-fable-5` state remains compatible. They are
+never automatic and are not implementation lanes.
 
 ```text
-$codex-orchestration:codex-orchestration setup planner: Claude Fable 5 High, executor: GPT-5.6 Luna Max
+$codex-orchestration:codex-orchestration setup planner: Claude Fable 5.1 High, executor: GPT-5.6 Luna Max
 $codex-orchestration:codex-orchestration setup advisor: Claude Opus 5 High, executor: GPT-5.6 Luna Max
 ```
 
-Only one bundled Claude subscription seat may be saved. Opus requires Claude Code
-2.1.219 or newer.
+Only one bundled Claude subscription seat may be saved. Fable 5.1 requires Claude Code
+2.1.255 or newer; Opus requires 2.1.219 or newer. Setup/status do not make a Claude
+model call.
 
 ## What was removed in 0.10.0
 

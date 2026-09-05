@@ -14,7 +14,9 @@ from typing import Any
 
 MANAGED_MARKER = "[codex-orchestration managed-policy v1]"
 ROUTING_TOOL_NAMESPACE = "agents"
-FABLE_MODEL = "claude-fable-5"
+FABLE_MODEL = "claude-fable-5-1"
+LEGACY_FABLE_MODEL = "claude-fable-5"
+FABLE_MODELS = frozenset({FABLE_MODEL, LEGACY_FABLE_MODEL})
 FABLE_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 OPUS_MODEL = "claude-opus-5"
 OPUS_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
@@ -147,7 +149,7 @@ def _validate_route(route: Any, *, seat: str, schema: int) -> str:
             f"{seat} model route has an invalid model",
         )
         _require(
-            route["model"] not in {FABLE_MODEL, OPUS_MODEL},
+            route["model"] not in {*FABLE_MODELS, OPUS_MODEL},
             f"{seat} model route uses a reserved Claude model",
         )
         _require(
@@ -173,7 +175,7 @@ def _validate_route(route: Any, *, seat: str, schema: int) -> str:
             set(route) == {"kind", "model", "effort", "server"},
             f"{seat} Fable route has the wrong shape",
         )
-        _require(route["model"] == FABLE_MODEL, "Fable model is not pinned")
+        _require(route["model"] in FABLE_MODELS, "Fable model is not pinned")
         _require(
             type(route["effort"]) is str and route["effort"] in FABLE_EFFORTS,
             "Fable effort is unsupported",

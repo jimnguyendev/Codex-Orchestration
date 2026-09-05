@@ -35,6 +35,13 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("When uncertain, use Terra", SKILL)
         self.assertNotIn("reasoning_effort=xhigh", SKILL)
 
+    def test_astra_keeps_hard_work_at_the_frontier_root_and_fails_closed(self) -> None:
+        for surface in (SKILL, REFERENCE, README, README_VI):
+            self.assertIn("gpt-6-astra", surface)
+        self.assertIn("GPT-6 Astra root", SKILL)
+        self.assertIn("catalog", SKILL)
+        self.assertIn("do not downgrade", SKILL)
+
     def test_handoff_is_bounded_and_does_not_copy_history(self) -> None:
         for heading in (
             "OBJECTIVE",
@@ -101,10 +108,13 @@ class SkillContractTests(unittest.TestCase):
             self.assertFalse((SKILL_ROOT / "scripts" / name).exists(), name)
 
     def test_fable_and_opus_remain_explicit_optional_routes(self) -> None:
-        self.assertIn("Claude Fable 5 and Claude Opus 5 remain", SKILL)
-        self.assertIn("They are not\nimplementation lanes", SKILL)
+        self.assertIn("Claude Fable 5.1 and Claude Opus 5 remain", SKILL)
+        self.assertIn("They are not implementation lanes", SKILL)
+        self.assertIn("claude-fable-5-1", REFERENCE)
         self.assertIn("claude-fable-5", REFERENCE)
         self.assertIn("claude-opus-5", REFERENCE)
+        self.assertIn("Team", REFERENCE)
+        self.assertIn("Claude Code 2.1.255 or newer", REFERENCE)
         self.assertTrue((SKILL_ROOT / "scripts" / "fable_advisor_mcp.py").is_file())
         self.assertTrue((SKILL_ROOT / "scripts" / "external_subscription.py").is_file())
 
@@ -113,6 +123,7 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("--executor-effort max", SKILL)
         self.assertIn("stores the Luna routine route", SKILL)
         self.assertIn("pins Terra Max for hard/risky work", SKILL)
+        self.assertIn("Version 0.11 persistent setup", SKILL)
         self.assertIn("legacy workflow active", SKILL)
         self.assertIn("config/read", SKILL)
         self.assertIn("config/batchWrite", SKILL)

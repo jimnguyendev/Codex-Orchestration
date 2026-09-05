@@ -30,7 +30,11 @@ class SubscriptionProviderTests(unittest.TestCase):
                 provider["subscription_adapter"]["module"],
                 "fable_advisor_mcp",
             )
-        self.assertEqual(set(fable["models"]), {"claude-fable-5"})
+        self.assertEqual(
+            set(fable["models"]),
+            {"claude-fable-5", "claude-fable-5-1"},
+        )
+        self.assertEqual(fable["version"], 2)
         self.assertEqual(set(opus["models"]), {"claude-opus-5"})
 
     def test_subscription_effort_is_exact(self) -> None:
@@ -54,7 +58,7 @@ class SubscriptionProviderTests(unittest.TestCase):
             lambda value: value["subscription_adapter"].update(
                 {"module": "untrusted_bridge"}
             ),
-            lambda value: value["models"]["claude-fable-5"].update(
+            lambda value: value["models"]["claude-fable-5-1"].update(
                 {"supported_efforts": ["high", "high"]}
             ),
         ):

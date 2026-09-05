@@ -333,7 +333,7 @@ class NativeRoutingTests(unittest.TestCase):
                 )
                 raise SystemExit(0)
             if sys.argv[1:] == ["--version"]:
-                print("2.1.219 (Claude Code)")
+                print("2.1.259 (Claude Code)")
                 raise SystemExit(0)
             raise SystemExit(2)
             """,
@@ -522,10 +522,20 @@ class NativeRoutingTests(unittest.TestCase):
         )
         self.assertIn(enforcement_boundary, mode)
         self.assertIn("gpt-5.6-terra", mode)
+        self.assertIn("gpt-6-astra", mode)
+        self.assertIn(
+            "When the root task model is GPT-6 Astra, keep hard/risky work in root",
+            mode,
+        )
         self.assertIn("reasoning_effort = 'max'", mode)
         self.assertIn('model = "gpt-5.6-luna"', usage)
         self.assertIn('reasoning_effort = "max"', usage)
         self.assertIn('model = "gpt-5.6-terra"', usage)
+        self.assertIn("gpt-6-astra", usage)
+        self.assertIn(
+            "When the root task model is GPT-6 Astra, keep hard/risky work in root",
+            usage,
+        )
         self.assertIn('reasoning_effort = "max"', usage)
         self.assertIn("For routine, bounded", usage)
         self.assertIn("For hard, ambiguous, or high-risk work", usage)
@@ -1563,7 +1573,10 @@ class NativeRoutingTests(unittest.TestCase):
         repaired = self.run_script("--repair", "--apply")
         self.assertIn("Native routing policy repaired", repaired.stdout)
         self.assertIn("fully quit and reopen Codex", repaired.stdout)
-        self.assertIn("does not change Claude Fable 5 authentication", repaired.stdout)
+        self.assertIn(
+            "does not change Claude Fable 5.1 authentication",
+            repaired.stdout,
+        )
         after = self.read_fake_config()
         repaired_feature = after["features"]["multi_agent_v2"]
         self.assertEqual(
@@ -2510,7 +2523,7 @@ class NativeRoutingTests(unittest.TestCase):
             "gpt-5.6-terra",
             "--apply",
         )
-        self.assertIn("Planner: Claude Fable 5 max", setup.stdout)
+        self.assertIn("Planner: Claude Fable 5.1 max", setup.stdout)
         state = json.loads(
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
         )
@@ -2534,7 +2547,7 @@ class NativeRoutingTests(unittest.TestCase):
             "high",
             "--apply",
         )
-        self.assertIn("Advisor: Claude Fable 5 high", moved.stdout)
+        self.assertIn("Advisor: Claude Fable 5.1 high", moved.stdout)
         moved_servers = self.read_fake_config()["plugins"][NATIVE.PLUGIN_ID][
             "mcp_servers"
         ]
@@ -2558,7 +2571,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--apply",
         )
         self.assertIn("Planner: gpt-5.6-sol@xhigh", setup.stdout)
-        self.assertIn("Advisor: Claude Fable 5 medium", setup.stdout)
+        self.assertIn("Advisor: Claude Fable 5.1 medium", setup.stdout)
         state = json.loads(
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
         )
@@ -2593,7 +2606,7 @@ class NativeRoutingTests(unittest.TestCase):
             "max",
             "--apply",
         )
-        self.assertIn("Claude Fable 5 max", setup.stdout)
+        self.assertIn("Claude Fable 5.1 max", setup.stdout)
         config = self.read_fake_config()
         servers = config["plugins"][NATIVE.PLUGIN_ID]["mcp_servers"]
         self.assertTrue(servers["fable-advisor-python3"]["enabled"])
@@ -2603,11 +2616,11 @@ class NativeRoutingTests(unittest.TestCase):
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
         )
         self.assertEqual(state["advisor"]["kind"], "fable")
-        self.assertEqual(state["advisor"]["model"], "claude-fable-5")
+        self.assertEqual(state["advisor"]["model"], "claude-fable-5-1")
         self.assertIn("mcp", state["previous"])
 
         status = self.run_script("--status")
-        self.assertIn("Claude Fable 5: ready", status.stdout)
+        self.assertIn("Claude Fable 5.1: ready", status.stdout)
         self.assertIn("no model call made", status.stdout)
 
         update = self.run_script(
@@ -2633,7 +2646,7 @@ class NativeRoutingTests(unittest.TestCase):
             "--advisor-fable",
             "--apply",
         )
-        self.assertIn("Advisor: Claude Fable 5 high", setup.stdout)
+        self.assertIn("Advisor: Claude Fable 5.1 high", setup.stdout)
         state = json.loads(
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
         )
@@ -2649,7 +2662,7 @@ class NativeRoutingTests(unittest.TestCase):
             "ultra",
             "--apply",
         )
-        self.assertIn("Advisor: Claude Fable 5 max", update.stdout)
+        self.assertIn("Advisor: Claude Fable 5.1 max", update.stdout)
         self.assertIn("Advisor effort alias: ultra -> max", update.stdout)
         state = json.loads(
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
@@ -2800,7 +2813,23 @@ class NativeRoutingTests(unittest.TestCase):
             "--planner-fable",
             "--apply",
         )
-        self.assertIn("Planner: Claude Fable 5 high", fable.stdout)
+        self.assertIn("Planner: Claude Fable 5.1 high", fable.stdout)
+
+    def test_fable_5_1_requires_supported_claude_code_without_writes(self) -> None:
+        original = self.claude.read_text(encoding="utf-8")
+        self.claude.write_text(
+            original.replace("2.1.259 (Claude Code)", "2.1.254 (Claude Code)"),
+            encoding="utf-8",
+        )
+        too_old = self.run_script(
+            "--executor-model",
+            "gpt-5.6-luna",
+            "--advisor-fable",
+            check=False,
+        )
+        self.assertEqual(too_old.returncode, 2)
+        self.assertIn("Claude Fable 5.1 requires Claude Code 2.1.255 or newer", too_old.stderr)
+        self.assertFalse((self.home / NATIVE.STATE_FILENAME).exists())
 
     def test_generic_opus_transitions_are_rejected_without_writes(self) -> None:
         state_path = self.home / NATIVE.STATE_FILENAME
@@ -2862,7 +2891,7 @@ class NativeRoutingTests(unittest.TestCase):
     def test_opus_version_and_effort_prerequisites_fail_closed(self) -> None:
         original = self.claude.read_text(encoding="utf-8")
         self.claude.write_text(
-            original.replace("2.1.219 (Claude Code)", "2.1.218 (Claude Code)"),
+            original.replace("2.1.259 (Claude Code)", "2.1.218 (Claude Code)"),
             encoding="utf-8",
         )
         too_old = self.run_script(
@@ -2888,7 +2917,7 @@ class NativeRoutingTests(unittest.TestCase):
             with self.subTest(accepted=output):
                 self.claude.write_text(
                     original.replace(
-                        'print("2.1.219 (Claude Code)")',
+                        'print("2.1.259 (Claude Code)")',
                         f"print({output!r})",
                     ),
                     encoding="utf-8",
@@ -2912,7 +2941,7 @@ class NativeRoutingTests(unittest.TestCase):
             with self.subTest(rejected=output):
                 self.claude.write_text(
                     original.replace(
-                        'print("2.1.219 (Claude Code)")',
+                        'print("2.1.259 (Claude Code)")',
                         f"print({output!r})",
                     ),
                     encoding="utf-8",
@@ -2931,7 +2960,7 @@ class NativeRoutingTests(unittest.TestCase):
 
         self.claude.write_text(
             original.replace(
-                'print("2.1.219 (Claude Code)")',
+                'print("2.1.259 (Claude Code)")',
                 "print('2.1.218 (Claude Code)')",
             ),
             encoding="utf-8",
@@ -3041,7 +3070,7 @@ class NativeRoutingTests(unittest.TestCase):
         self.assertIn("Claude Opus 5 effort must be one of", unsealed.stderr)
 
         self.claude.write_text(
-            original.replace("2.1.219 (Claude Code)", "not-a-version"),
+            original.replace("2.1.259 (Claude Code)", "not-a-version"),
             encoding="utf-8",
         )
         malformed = self.run_script(

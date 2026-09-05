@@ -1,7 +1,7 @@
 {
   "name": "codex-orchestration",
-  "version": "0.10.3",
-  "description": "Route routine implementation to Luna Max and hard or risky work to Terra Max while the current task remains root.",
+  "version": "0.11.0",
+  "description": "Route routine implementation to Luna Max, preserve GPT-6 Astra root authority, and offer sealed Claude Fable 5.1 planning.",
   "author": {
     "name": "CJ Zafir",
     "url": "https://github.com/Cjbuilds"
@@ -20,8 +20,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Codex Orchestration",
-    "shortDescription": "Route routine work to Luna and hard work to Terra",
-    "longDescription": "A compact Codex-native workflow: the current task remains root, GPT-5.6 Luna Max handles routine implementation, GPT-5.6 Terra Max handles hard or risky work, and optional Fable or Opus planning stays explicit.",
+    "shortDescription": "Model-aware Luna, Terra, Astra, and Claude routing",
+    "longDescription": "A compact Codex-native workflow: the current task remains root, GPT-5.6 Luna Max handles routine implementation, GPT-5.6 Terra Max handles hard or risky work unless GPT-6 Astra is already root, and optional Claude Fable 5.1 or Opus 5 planning stays explicit.",
     "developerName": "CJ Zafir",
     "category": "Productivity",
     "websiteURL": "https://github.com/jimnguyendev/Codex-Orchestration",
@@ -30,6 +30,7 @@
       "Task-shape routing",
       "Routine Luna execution",
       "Hard-task Terra execution",
+      "GPT-6 Astra root preservation",
       "Bounded handoffs",
       "Optional model planning"
     ],

@@ -9,7 +9,7 @@ codex plugin list --json
 ```
 
 Kiểm tra plugin ở trạng thái enabled, source trỏ đến marketplace Git chính thức
-của fork và version là 0.10.0 trở lên. Sau khi cài/update, thoát hoàn toàn Codex,
+của fork và version là 0.11.0 trở lên. Sau khi cài/update, thoát hoàn toàn Codex,
 mở lại và tạo task mới.
 
 ## 2. Dùng task-local routing
@@ -24,7 +24,9 @@ Root phân loại:
 
 - task quá nhỏ: Root tự làm;
 - routine, contract rõ, rủi ro thấp: Luna Max;
-- khó, mơ hồ, security/state/migration/concurrency: Terra Max.
+- khó, mơ hồ, security/state/migration/concurrency: Terra Max nếu Root không phải Astra;
+- nếu task hiện tại dùng GPT-6 Astra (`gpt-6-astra`): giữ việc hard/risky ở Root,
+  không hạ xuống Terra. Chỉ route Astra child khi catalog callable có đúng ID đó.
 
 Có thể override rõ ràng trong task hiện tại:
 
@@ -40,10 +42,10 @@ Override không được lưu sang task sau.
 
 Cấu hình người dùng yêu cầu:
 
-- Planner: Claude Fable 5, High;
+- Planner: Claude Fable 5.1, High;
 - Advisor: GPT-5.6 Sol, High;
 - routine Executor: GPT-5.6 Luna, Max;
-- hard/risky lane: GPT-5.6 Terra, Max do policy 0.10 pin sẵn.
+- hard/risky lane: GPT-5.6 Terra, Max do policy 0.11 pin cho non-Astra Root.
 
 Fresh persistent setup chỉ nhận đúng Luna Max. Executor model khác, effort khác hoặc
 custom Executor đều fail trước khi ghi config; các route đó vẫn có thể dùng task-local.
@@ -51,7 +53,7 @@ custom Executor đều fail trước khi ghi config; các route đó vẫn có t
 Từ skill, yêu cầu tự nhiên là:
 
 ```text
-$codex-orchestration:codex-orchestration setup planner: Claude Fable 5 High, advisor: GPT-5.6 Sol High, executor: GPT-5.6 Luna Max
+$codex-orchestration:codex-orchestration setup planner: Claude Fable 5.1 High, advisor: GPT-5.6 Sol High, executor: GPT-5.6 Luna Max
 ```
 
 Configurator tương ứng phải được chạy preview trước:
@@ -71,8 +73,9 @@ Chỉ khi preview sạch mới thêm `--apply`. Không thêm
 `--allow-incompatible-client`, `--replace-existing-policy` hoặc
 `--confirm-unlisted-models` nếu chưa có lý do và quyền rõ ràng.
 
-Fable dùng Claude Code CLI chính thức và login first-party hiện có. Setup không
-tạo credential. Fable và Sol chỉ là seat tùy chọn; cấu hình xong vẫn không tự gọi
+Fable dùng Claude Code CLI chính thức và login first-party Pro, Max hoặc Team hiện
+có. Fable 5.1 yêu cầu Claude Code 2.1.255+, setup pin `claude-fable-5-1`, còn state
+`claude-fable-5` cũ vẫn đọc được. Setup không tạo credential. Fable và Sol chỉ là seat tùy chọn; cấu hình xong vẫn không tự gọi
 chúng nếu task hiện tại không yêu cầu planning/review hoặc repository gate không
 bắt buộc.
 
@@ -94,7 +97,7 @@ Kết quả này chứng minh config và saved state nhất quán. Nó chưa ch�
 route thực tế đã chạy. Cần task mới và exact child call để nâng evidence thành
 `route accepted`; cần runtime metadata để báo `used and confirmed`.
 
-Nếu status báo `legacy workflow active`, policy được tạo trước 0.10. Hãy chạy một
+Nếu status báo `legacy workflow active`, policy được tạo trước 0.11. Hãy chạy một
 fresh explicit setup để migrate managed hints hoặc disable policy cũ. Migration chỉ
 đổi marker/hints sẽ giữ nguyên Fable hoặc Opus seat hợp lệ nếu command mới không nhắc
 lại seat đó. Nếu status báo hints còn nhưng saved state đã mất, repair và disable không
@@ -158,7 +161,7 @@ tạo task mới; task đã load không hot-reload skill, MCP bridge hoặc poli
 | Exact model không có trong catalog | Route unavailable | Không tự fallback; kiểm tra đúng Codex host/version. |
 | Fable status báo auth unavailable | Claude first-party login chưa sẵn sàng | Login bằng Claude Code ngoài plugin rồi chạy status lại. |
 | Fable tool lỗi nhưng fresh status báo ready | Task đang giữ MCP bridge cũ | Thoát hoàn toàn Codex, mở lại, tạo task mới; không yêu cầu login lại. |
-| `legacy workflow active` | Managed hints trước 0.10 | Fresh setup hoặc disable. |
+| `legacy workflow active` | Managed hints trước 0.11 | Fresh setup hoặc disable. |
 | Policy conflict với user-authored hints | Plugin không sở hữu field | Dừng và review; chỉ replace khi người dùng chủ động cho phép. |
 | Child không trả runtime metadata | Không đủ bằng chứng model thực tế | Báo `route accepted`, không báo `used and confirmed`. |
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.0 — Unreleased
+
+- Add sealed `claude-fable-5-1` Planner and Advisor routes for first-party Claude
+  Code Pro, Max, or Team login; fresh Fable setup now selects 5.1 while exact
+  saved `claude-fable-5` routes remain readable and callable.
+- Require Claude Code 2.1.255 or newer for fresh Fable 5.1 setup, and keep its
+  runtime identity primary-only until a live first-party fallback/helper set is
+  independently qualified.
+- Recognize `gpt-6-astra` as a frontier root: keep hard/risky work in Astra root
+  instead of downgrading it to Terra, and allow direct Astra child routing only
+  when the active callable model catalog exposes the exact ID.
+- Keep `gpt-5.6-luna@max` and `gpt-5.6-terra@max` as the compatible persistent
+  routine and non-Astra hard lanes.
+
 ## 0.10.3 — Unreleased
 
 - Make file count an advisory routing signal rather than a hard Luna limit;

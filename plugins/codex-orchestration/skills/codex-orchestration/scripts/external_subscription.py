@@ -10,12 +10,13 @@ import fable_advisor_mcp
 
 
 FABLE_PROVIDER = "claude-fable"
-FABLE_MODEL = "claude-fable-5"
+FABLE_MODEL = fable_advisor_mcp.FABLE_MODEL
+LEGACY_FABLE_MODEL = fable_advisor_mcp.LEGACY_FABLE_MODEL
 OPUS_PROVIDER = "claude-opus"
-OPUS_MODEL = "claude-opus-5"
+OPUS_MODEL = fable_advisor_mcp.OPUS_MODEL
 SEALED_MODELS = {
-    FABLE_PROVIDER: FABLE_MODEL,
-    OPUS_PROVIDER: OPUS_MODEL,
+    FABLE_PROVIDER: frozenset({FABLE_MODEL, LEGACY_FABLE_MODEL}),
+    OPUS_PROVIDER: frozenset({OPUS_MODEL}),
 }
 OPERATION_SEATS = {
     "create_plan": "planner",
@@ -45,7 +46,7 @@ def validate_route(
     provider = external_providers.load_provider(provider_id)
     _require(provider["lane"] == "subscription", "provider is not a subscription adapter")
     _require(
-        model == SEALED_MODELS[provider_id],
+        model in SEALED_MODELS[provider_id],
         "subscription provider/model pair is not sealed",
     )
     selected_effort = external_providers.resolve_effort(provider, model, effort)

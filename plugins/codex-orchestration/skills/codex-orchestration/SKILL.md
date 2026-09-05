@@ -1,6 +1,6 @@
 ---
 name: codex-orchestration
-description: Route bounded implementation work to GPT-5.6 Luna Max for routine tasks or GPT-5.6 Terra Max for hard, ambiguous, or high-risk tasks while the current Codex task remains root. Use for model routing, delegated implementation, setup, status, repair, disable, custom roles, or optional Claude Fable 5 and Claude Opus 5 planning and review.
+description: Route bounded implementation work to GPT-5.6 Luna Max for routine tasks, GPT-5.6 Terra Max for hard tasks, or keep hard work with a GPT-6 Astra root. Use for model routing, delegated implementation, setup, status, repair, disable, custom roles, or optional Claude Fable 5.1 and Claude Opus 5 planning and review.
 ---
 
 # Codex Orchestration
@@ -34,8 +34,11 @@ spanning database schema, migration, seed, API wiring, and tests is Terra/state 
 even when its ownership is bounded. Route by contract, state boundaries, ambiguity,
 and blast radius rather than counting files.
 
-When uncertain, use Terra. Route by task shape rather than model prestige. A user's
-explicit lane or `no subagents` instruction overrides this default.
+When the current task is a GPT-6 Astra root (`gpt-6-astra`), keep hard/risky work
+in root; do not downgrade it to Terra. Route an Astra child only when the active
+callable model catalog exposes that exact ID, otherwise fail closed. For other root
+models: When uncertain, use Terra. A user's explicit lane or `no subagents`
+instruction overrides this default.
 
 Use the exact task-local route when the host exposes direct child routing:
 
@@ -124,9 +127,10 @@ planning or review call only when the user requests it or a repository/risk gate
 requires it. Do not add a routine final-review spawn to every task.
 
 For security, authentication, state, destructive behavior, migrations, or public API
-changes, use Terra and follow repository-specific threat-model, negative-test, and
-review requirements. The plugin never weakens approvals, permissions, sandboxing,
-global agent limits, or Goal ownership.
+changes, keep the work with an Astra root or use Terra for other root models, then
+follow repository-specific threat-model, negative-test, and review requirements. The
+plugin never weakens approvals, permissions, sandboxing, global agent limits, or Goal
+ownership.
 
 ## Optional planning and review
 
@@ -139,10 +143,11 @@ second call: root fixes the issue, then asks the user before any model re-review
 to attest the changed tree. Only an explicit current-task instruction may enlarge this
 budget. Never replay the full transcript or invoke a configured seat merely to use it.
 
-Claude Fable 5 and Claude Opus 5 remain sealed first-party subscription routes for one
-Planner or Advisor seat. They use the official Claude Code login, no tools, no session
-persistence, exact model/effort validation, and the bundled bridge. They are not
-implementation lanes. Read
+Claude Fable 5.1 and Claude Opus 5 remain sealed first-party subscription routes for
+one Planner or Advisor seat. Fable uses `claude-fable-5-1` for fresh setup while exact
+saved `claude-fable-5` state remains compatible. They use official first-party Claude
+Code Pro, Max, or Team login, no tools, no session persistence, exact model/effort
+validation, and the bundled bridge. They are not implementation lanes. Read
 [providers-and-models.md](references/providers-and-models.md) only when configuring or
 diagnosing these routes, custom agents, provider boundaries, or legacy state.
 
@@ -167,7 +172,7 @@ optional Planner/Advisor bridge.
 
 Persistent setup is optional. It stores the Luna routine route while the generated
 policy pins Terra Max for hard/risky work; classification still happens per task. Use
-it only when the user explicitly asks for `setup`. Version 0.10 persistent setup
+it only when the user explicitly asks for `setup`. Version 0.11 persistent setup
 accepts exactly `gpt-5.6-luna` at `max`; arbitrary/custom Executor routes remain
 task-local. Existing non-Luna saved routes are compatibility state for status, repair,
 and disable, not templates for a new policy. Resolve the active host's Codex binary,
@@ -190,11 +195,11 @@ A literal setup request authorizes a clean apply after preview, but not replacem
 unrelated user policy. Start a new Codex task after apply. Use `--planner-fable`,
 `--planner-opus`, `--advisor-fable`, or `--advisor-opus` only when the user explicitly
 selects that optional seat. Do not configure a saved Luna-to-Terra fallback as the
-normal two-lane policy.
+normal model-aware policy.
 
-After upgrading an active policy created before 0.10, `status --require-effective`
+After upgrading an active policy created before 0.11, `status --require-effective`
 reports `legacy workflow active`. Existing state remains valid for status, repair, and
-disable. Run one explicit fresh setup to replace the managed hints with the two-lane
+disable. Run one explicit fresh setup to replace the managed hints with the model-aware
 workflow, or disable the saved policy and use task-local routing. A marker-only
 migration preserves an existing validated Fable or Opus seat when that seat is omitted
 from the fresh setup; replacing or removing a sealed seat still requires an explicit
