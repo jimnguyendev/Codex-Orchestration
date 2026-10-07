@@ -34,8 +34,12 @@ class ExternalSubscriptionTests(unittest.TestCase):
         opus, opus_effort = SUBSCRIPTION.validate_route(
             "claude-opus", "claude-opus-5", "xhigh", "review_plan"
         )
-        self.assertEqual(opus["name"], "Claude Opus 5")
+        self.assertEqual(opus["name"], "Claude Opus")
         self.assertEqual(opus_effort, "xhigh")
+        _, current_opus_effort = SUBSCRIPTION.validate_route(
+            "claude-opus", "claude-opus-5-5", "high", "create_plan"
+        )
+        self.assertEqual(current_opus_effort, "high")
         for values in (
             ("unknown", "claude-fable-5", "high", "create_plan"),
             ("claude-fable", "claude-other", "high", "create_plan"),

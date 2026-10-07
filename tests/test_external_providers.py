@@ -35,7 +35,7 @@ class SubscriptionProviderTests(unittest.TestCase):
             {"claude-fable-5", "claude-fable-5-1"},
         )
         self.assertEqual(fable["version"], 2)
-        self.assertEqual(set(opus["models"]), {"claude-opus-5"})
+        self.assertEqual(set(opus["models"]), {"claude-opus-5-5", "claude-opus-5"})
 
     def test_subscription_effort_is_exact(self) -> None:
         provider = PROVIDERS.load_provider("claude-opus")

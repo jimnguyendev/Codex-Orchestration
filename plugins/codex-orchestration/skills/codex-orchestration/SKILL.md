@@ -1,6 +1,6 @@
 ---
 name: codex-orchestration
-description: Route bounded implementation work to GPT-5.6 Luna Max for routine tasks, GPT-5.6 Terra Max for hard tasks, or keep hard work with a GPT-6 Astra root. Use for model routing, delegated implementation, setup, status, repair, disable, custom roles, or optional Claude Fable 5.1 and Claude Opus 5 planning and review.
+description: Route bounded implementation work to GPT-5.6 Luna Max for routine tasks, GPT-5.6 Terra Max for hard tasks, or keep hard work with a GPT-6 Astra root. Use for model routing, delegated implementation, setup, status, repair, disable, custom roles, or optional Claude Fable 5.1 and Claude Opus 5.5 planning and review.
 ---
 
 # Codex Orchestration
@@ -143,9 +143,9 @@ second call: root fixes the issue, then asks the user before any model re-review
 to attest the changed tree. Only an explicit current-task instruction may enlarge this
 budget. Never replay the full transcript or invoke a configured seat merely to use it.
 
-Claude Fable 5.1 and Claude Opus 5 remain sealed first-party subscription routes for
-one Planner or Advisor seat. Fable uses `claude-fable-5-1` for fresh setup while exact
-saved `claude-fable-5` state remains compatible. They use official first-party Claude
+Claude Fable 5.1 and Claude Opus 5.5 remain sealed first-party subscription routes for
+one Planner or Advisor seat. Fresh setup uses `claude-fable-5-1` or `claude-opus-5-5`
+while exact saved `claude-fable-5` and `claude-opus-5` state remains compatible. They use official first-party Claude
 Code Pro, Max, or Team login, no tools, no session persistence, exact model/effort
 validation, and the bundled bridge. They are not implementation lanes. Read
 [providers-and-models.md](references/providers-and-models.md) only when configuring or

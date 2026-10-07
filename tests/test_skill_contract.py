@@ -108,7 +108,7 @@ class SkillContractTests(unittest.TestCase):
             self.assertFalse((SKILL_ROOT / "scripts" / name).exists(), name)
 
     def test_fable_and_opus_remain_explicit_optional_routes(self) -> None:
-        self.assertIn("Claude Fable 5.1 and Claude Opus 5 remain", SKILL)
+        self.assertIn("Claude Fable 5.1 and Claude Opus 5.5 remain", SKILL)
         self.assertIn("They are not implementation lanes", SKILL)
         self.assertIn("claude-fable-5-1", REFERENCE)
         self.assertIn("claude-fable-5", REFERENCE)

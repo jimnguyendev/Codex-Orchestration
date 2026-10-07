@@ -18,7 +18,9 @@ FABLE_MODEL = "claude-fable-5-1"
 LEGACY_FABLE_MODEL = "claude-fable-5"
 FABLE_MODELS = frozenset({FABLE_MODEL, LEGACY_FABLE_MODEL})
 FABLE_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
-OPUS_MODEL = "claude-opus-5"
+OPUS_MODEL = "claude-opus-5-5"
+LEGACY_OPUS_MODEL = "claude-opus-5"
+OPUS_MODELS = frozenset({OPUS_MODEL, LEGACY_OPUS_MODEL})
 OPUS_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 FABLE_SERVERS = frozenset(
     {
@@ -149,7 +151,7 @@ def _validate_route(route: Any, *, seat: str, schema: int) -> str:
             f"{seat} model route has an invalid model",
         )
         _require(
-            route["model"] not in {*FABLE_MODELS, OPUS_MODEL},
+            route["model"] not in {*FABLE_MODELS, *OPUS_MODELS},
             f"{seat} model route uses a reserved Claude model",
         )
         _require(
@@ -193,10 +195,10 @@ def _validate_route(route: Any, *, seat: str, schema: int) -> str:
             set(route) == {"kind", "model", "effort", "server"},
             f"{seat} Claude subscription route has the wrong shape",
         )
-        _require(route["model"] == OPUS_MODEL, "Claude subscription model is not pinned")
+        _require(route["model"] in OPUS_MODELS, "Claude subscription model is not pinned")
         _require(
             type(route["effort"]) is str and route["effort"] in OPUS_EFFORTS,
-            "Claude Opus 5 effort is unsupported",
+            "Claude Opus effort is unsupported",
         )
         _require(
             type(route["server"]) is str and route["server"] in FABLE_SERVERS,

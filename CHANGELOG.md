@@ -13,6 +13,9 @@
   when the active callable model catalog exposes the exact ID.
 - Keep `gpt-5.6-luna@max` and `gpt-5.6-terra@max` as the compatible persistent
   routine and non-Astra hard lanes.
+- Add sealed `claude-opus-5-5` Planner and Advisor routes: fresh Opus setup now
+  pins Opus 5.5 (Claude Code 2.1.292 or newer, primary-only runtime identity) while
+  exact saved `claude-opus-5` routes remain readable and callable.
 
 ## 0.10.3 — Unreleased
 
