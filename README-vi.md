@@ -97,19 +97,20 @@ seat đó. Nếu saved state đã mất, status phải báo repair và disable k
 
 ## Fable và Opus vẫn được giữ
 
-Claude Fable 5.1 và Claude Opus 5 vẫn là route Planner hoặc Advisor tùy chọn. Chúng
+Claude Fable 5.1 và Claude Opus 5.5 vẫn là route Planner hoặc Advisor tùy chọn. Chúng
 dùng Claude Code CLI chính thức với login first-party Pro, Max hoặc Team hiện có,
 không dùng tools, không giữ session và kiểm tra đúng model runtime. Fresh setup Fable
-pin `claude-fable-5-1`; state `claude-fable-5` cũ vẫn tương thích. Plugin không tự gọi
+pin `claude-fable-5-1`, fresh setup Opus pin `claude-opus-5-5`; state `claude-fable-5`
+và `claude-opus-5` cũ vẫn tương thích. Plugin không tự gọi
 hai route này và không dùng chúng làm implementation worker.
 
 ```text
 $codex-orchestration:codex-orchestration setup planner: Claude Fable 5.1 High, executor: GPT-5.6 Luna Max
-$codex-orchestration:codex-orchestration setup advisor: Claude Opus 5 High, executor: GPT-5.6 Luna Max
+$codex-orchestration:codex-orchestration setup advisor: Claude Opus 5.5 High, executor: GPT-5.6 Luna Max
 ```
 
 Chỉ một bundled Claude subscription seat được lưu. Fable 5.1 yêu cầu Claude Code
-2.1.255+; Opus yêu cầu 2.1.219+. Setup/status không gọi model Claude.
+2.1.255+; Opus 5.5 yêu cầu 2.1.292+ (route Opus 5 đã lưu vẫn dùng mốc 2.1.219). Setup/status không gọi model Claude.
 
 ## Phần đã gỡ ở 0.10.0
 

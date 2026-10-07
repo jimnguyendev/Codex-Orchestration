@@ -43,7 +43,9 @@ from routing_state import (
     LEGACY_FABLE_MODEL,
     MANAGED_MARKER,
     OPUS_EFFORTS,
+    LEGACY_OPUS_MODEL,
     OPUS_MODEL,
+    OPUS_MODELS,
     ROUTING_TOOL_NAMESPACE,
     RoutingStateError,
     routing_state_binding,
@@ -71,6 +73,8 @@ FABLE_EFFORT_CHOICES = ("low", "medium", "high", "xhigh", "max")
 FABLE_EFFORT_ALIASES = {"ultra": "max"}
 OPUS_DEFAULT_EFFORT = "high"
 OPUS_MIN_CLAUDE_VERSION = (2, 1, 219)
+# First Claude Code release verified running Opus 5.5; raise only with new evidence.
+OPUS_5_5_MIN_CLAUDE_VERSION = (2, 1, 292)
 FABLE_MIN_CLAUDE_VERSION = (2, 1, 255)
 FABLE_SERVERS = {
     "fable-advisor-python3": ("python3", []),
@@ -163,7 +167,7 @@ def parse_args() -> argparse.Namespace:
     planner.add_argument(
         "--planner-opus",
         action="store_true",
-        help="Use the bundled Claude Opus 5 planner through Claude Code.",
+        help="Use the bundled Claude Opus 5.5 planner through Claude Code.",
     )
     parser.add_argument(
         "--planner-effort",
@@ -182,7 +186,7 @@ def parse_args() -> argparse.Namespace:
     advisor.add_argument(
         "--advisor-opus",
         action="store_true",
-        help="Use the bundled Claude Opus 5 advisor through Claude Code.",
+        help="Use the bundled Claude Opus 5.5 advisor through Claude Code.",
     )
     parser.add_argument(
         "--advisor-effort",
@@ -335,7 +339,7 @@ def _validate_args(args: argparse.Namespace) -> None:
     ):
         if value is not None and not pattern.fullmatch(value):
             raise ConfigurationError(f"Invalid {label}: {value!r}.")
-        if "model" in label and value in {*FABLE_MODELS, OPUS_MODEL}:
+        if "model" in label and value in {*FABLE_MODELS, *OPUS_MODELS}:
             raise ConfigurationError(
                 f"{label.title()} {value!r} is a reserved Claude model ID; "
                 "select its bundled sealed route instead."
@@ -376,13 +380,13 @@ def normalize_fable_effort(value: str) -> str:
 
 
 def normalize_opus_effort(value: str) -> str:
-    """Return one exact documented Claude Opus 5 effort."""
+    """Return one exact documented Claude Opus effort."""
 
     requested = OPUS_DEFAULT_EFFORT if value == "auto" else value
     if requested not in OPUS_EFFORTS:
         supported = ", ".join(sorted(OPUS_EFFORTS))
         raise ConfigurationError(
-            f"Claude Opus 5 effort must be one of: {supported}."
+            f"Claude Opus effort must be one of: {supported}."
         )
     return requested
 
@@ -1088,7 +1092,8 @@ def _claude_model_display_name(model: str) -> str:
     names = {
         FABLE_MODEL: "Claude Fable 5.1",
         LEGACY_FABLE_MODEL: "Claude Fable 5",
-        OPUS_MODEL: "Claude Opus 5",
+        OPUS_MODEL: "Claude Opus 5.5",
+        LEGACY_OPUS_MODEL: "Claude Opus 5",
     }
     if model not in names:
         raise ConfigurationError("The bundled Claude model is not sealed.")
@@ -1099,7 +1104,8 @@ def verify_claude_prerequisites(model: str, effort: str) -> dict[str, str]:
     display_name = _claude_model_display_name(model)
     minimum_version = {
         FABLE_MODEL: FABLE_MIN_CLAUDE_VERSION,
-        OPUS_MODEL: OPUS_MIN_CLAUDE_VERSION,
+        OPUS_MODEL: OPUS_5_5_MIN_CLAUDE_VERSION,
+        LEGACY_OPUS_MODEL: OPUS_MIN_CLAUDE_VERSION,
     }.get(model)
     try:
         from fable_advisor_mcp import (
@@ -1219,7 +1225,7 @@ def _route_summary(route: dict[str, Any]) -> str:
     if route["kind"] == "fable":
         return f"{_claude_model_display_name(route['model'])} {route['effort']}"
     if route["kind"] == "claude_subscription":
-        return f"Claude Opus 5 {route['effort']}"
+        return f"{_claude_model_display_name(route['model'])} {route['effort']}"
     return f"{route['model']}@{route['effort']}"
 
 
@@ -1620,8 +1626,8 @@ def _guard_subscription_transition(
     if existing is None:
         return
     existing_seat, existing_route = existing
-    opus_involved = existing_route.get("model") == OPUS_MODEL or (
-        requested is not None and requested[1].get("model") == OPUS_MODEL
+    opus_involved = existing_route.get("model") in OPUS_MODELS or (
+        requested is not None and requested[1].get("model") in OPUS_MODELS
     )
     if not opus_involved:
         return

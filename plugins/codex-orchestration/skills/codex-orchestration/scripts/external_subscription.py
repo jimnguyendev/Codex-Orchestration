@@ -14,9 +14,10 @@ FABLE_MODEL = fable_advisor_mcp.FABLE_MODEL
 LEGACY_FABLE_MODEL = fable_advisor_mcp.LEGACY_FABLE_MODEL
 OPUS_PROVIDER = "claude-opus"
 OPUS_MODEL = fable_advisor_mcp.OPUS_MODEL
+LEGACY_OPUS_MODEL = fable_advisor_mcp.LEGACY_OPUS_MODEL
 SEALED_MODELS = {
     FABLE_PROVIDER: frozenset({FABLE_MODEL, LEGACY_FABLE_MODEL}),
-    OPUS_PROVIDER: frozenset({OPUS_MODEL}),
+    OPUS_PROVIDER: frozenset({OPUS_MODEL, LEGACY_OPUS_MODEL}),
 }
 OPERATION_SEATS = {
     "create_plan": "planner",

@@ -62,7 +62,7 @@ class FableAdvisorMcpTests(unittest.TestCase):
     def opus_route(effort: str = "high") -> dict[str, str]:
         return {
             "kind": "claude_subscription",
-            "model": "claude-opus-5",
+            "model": "claude-opus-5-5",
             "effort": effort,
             "server": "fable-advisor-python3",
         }

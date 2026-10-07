@@ -74,10 +74,11 @@ Luna Max setup can create new bounded restore state after review.
 
 ## Claude subscription routes
 
-Claude Fable 5.1 and Claude Opus 5 are optional Planner or Advisor routes. They use
+Claude Fable 5.1 and Claude Opus 5.5 are optional Planner or Advisor routes. They use
 the official Claude Code CLI and an existing first-party Pro, Max, or Team login.
-They are never default implementation workers. Fresh Fable setup selects 5.1; the
-older Fable row is retained only for exact saved-state compatibility.
+They are never default implementation workers. Fresh Fable setup selects 5.1 and fresh
+Opus setup selects 5.5; the older Fable and Opus rows are retained only for exact
+saved-state compatibility.
 
 Sealed contracts:
 
@@ -85,6 +86,7 @@ Sealed contracts:
 | --- | --- | --- | --- |
 | `claude-fable` | `claude-fable-5-1` | Planner or Advisor | `low`, `medium`, `high`, `xhigh`, `max` |
 | `claude-fable` | `claude-fable-5` | Planner or Advisor | `low`, `medium`, `high`, `xhigh`, `max` |
+| `claude-opus` | `claude-opus-5-5` | Planner or Advisor | `low`, `medium`, `high`, `xhigh`, `max` |
 | `claude-opus` | `claude-opus-5` | Planner or Advisor | `low`, `medium`, `high`, `xhigh`, `max` |
 
 Only one bundled Claude subscription seat may be saved. Planner operations are
@@ -92,8 +94,8 @@ Only one bundled Claude subscription seat may be saved. Planner operations are
 tools or session persistence, pins model and effort, minimizes inherited environment,
 and validates runtime model metadata. Fable 5.1 requires Claude Code 2.1.255 or newer
 and remains primary-only until its fallback/helper identities are live-qualified.
-The legacy Fable 5 runtime allowlist is not inherited. Opus requires Claude Code
-2.1.219 or newer.
+The legacy Fable 5 runtime allowlist is not inherited. Opus 5.5 requires Claude Code
+2.1.292 or newer and is primary-only; saved Opus 5 routes keep the 2.1.219 minimum.
 
 Setup and status may check version, supported flags, and first-party authentication,
 but they do not make a planning/review model call. Never expose tokens or account

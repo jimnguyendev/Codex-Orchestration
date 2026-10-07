@@ -29,6 +29,8 @@ FABLE_MODEL = routing_state.FABLE_MODEL
 LEGACY_FABLE_MODEL = routing_state.LEGACY_FABLE_MODEL
 FABLE_MODELS = routing_state.FABLE_MODELS
 OPUS_MODEL = routing_state.OPUS_MODEL
+LEGACY_OPUS_MODEL = routing_state.LEGACY_OPUS_MODEL
+OPUS_MODELS = routing_state.OPUS_MODELS
 FABLE_SERVERS = routing_state.FABLE_SERVERS
 SUPPORTED_EFFORTS = routing_state.FABLE_EFFORTS
 # Claude Code currently reports this exact internal helper alongside Fable for
@@ -46,6 +48,7 @@ REVIEWED_PRIMARY_MODELS_BY_ROUTE = {
     # The resolved Fable identity is not an alias for the separately sealed
     # Opus route. Opus remains primary-only until independently re-qualified.
     OPUS_MODEL: frozenset({OPUS_MODEL}),
+    LEGACY_OPUS_MODEL: frozenset({LEGACY_OPUS_MODEL}),
 }
 LEGACY_FABLE_ALLOWED_RUNTIME_MODELS = frozenset(
     {
@@ -60,6 +63,7 @@ ALLOWED_RUNTIME_MODELS_BY_PRIMARY = {
     # No Opus helper identity has been independently verified. Fail closed if
     # Claude Code reports anything beyond the sealed primary.
     OPUS_MODEL: frozenset({OPUS_MODEL}),
+    LEGACY_OPUS_MODEL: frozenset({LEGACY_OPUS_MODEL}),
 }
 CANONICAL_RUNTIME_MODELS_BY_REPORTED_MODEL = {
     FABLE_MODEL: frozenset({FABLE_MODEL}),
@@ -69,6 +73,7 @@ CANONICAL_RUNTIME_MODELS_BY_REPORTED_MODEL = {
     ),
     FABLE_HELPER_MODEL: frozenset({"claude-haiku-4-5"}),
     OPUS_MODEL: frozenset({OPUS_MODEL}),
+    LEGACY_OPUS_MODEL: frozenset({LEGACY_OPUS_MODEL}),
 }
 RUNTIME_PROVIDER = "firstParty"
 CLAUDE_TIMEOUT_SECONDS = 600
@@ -183,7 +188,8 @@ def claude_model_display_name(model: str) -> str:
     names = {
         FABLE_MODEL: "Claude Fable 5.1",
         LEGACY_FABLE_MODEL: "Claude Fable 5",
-        OPUS_MODEL: "Claude Opus 5",
+        OPUS_MODEL: "Claude Opus 5.5",
+        LEGACY_OPUS_MODEL: "Claude Opus 5",
     }
     try:
         return names[model]

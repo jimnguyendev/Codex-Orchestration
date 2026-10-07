@@ -103,19 +103,20 @@ If saved state is missing, status reports that repair and disable are unavailabl
 
 ## Optional Fable and Opus planning
 
-Claude Fable 5.1 and Claude Opus 5 remain optional sealed Planner or Advisor routes.
+Claude Fable 5.1 and Claude Opus 5.5 remain optional sealed Planner or Advisor routes.
 They use the official Claude Code CLI, an existing first-party Pro, Max, or Team login,
 no tools, no session persistence, and exact runtime model checks. Fresh Fable setup
-pins `claude-fable-5-1`; saved `claude-fable-5` state remains compatible. They are
+pins `claude-fable-5-1` and fresh Opus setup pins `claude-opus-5-5`; saved
+`claude-fable-5` and `claude-opus-5` state remains compatible. They are
 never automatic and are not implementation lanes.
 
 ```text
 $codex-orchestration:codex-orchestration setup planner: Claude Fable 5.1 High, executor: GPT-5.6 Luna Max
-$codex-orchestration:codex-orchestration setup advisor: Claude Opus 5 High, executor: GPT-5.6 Luna Max
+$codex-orchestration:codex-orchestration setup advisor: Claude Opus 5.5 High, executor: GPT-5.6 Luna Max
 ```
 
 Only one bundled Claude subscription seat may be saved. Fable 5.1 requires Claude Code
-2.1.255 or newer; Opus requires 2.1.219 or newer. Setup/status do not make a Claude
+2.1.255 or newer; Opus 5.5 requires 2.1.292 or newer (saved Opus 5 routes keep 2.1.219). Setup/status do not make a Claude
 model call.
 
 ## What was removed in 0.10.0

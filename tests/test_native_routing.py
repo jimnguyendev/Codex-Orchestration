@@ -333,7 +333,7 @@ class NativeRoutingTests(unittest.TestCase):
                 )
                 raise SystemExit(0)
             if sys.argv[1:] == ["--version"]:
-                print("2.1.259 (Claude Code)")
+                print("2.1.292 (Claude Code)")
                 raise SystemExit(0)
             raise SystemExit(2)
             """,
@@ -2699,7 +2699,7 @@ class NativeRoutingTests(unittest.TestCase):
             "xhigh",
             "--apply",
         )
-        self.assertIn("Advisor: Claude Opus 5 xhigh", setup.stdout)
+        self.assertIn("Advisor: Claude Opus 5.5 xhigh", setup.stdout)
         self.assertIn("setup makes no model call", setup.stdout)
         state = json.loads(
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
@@ -2709,14 +2709,14 @@ class NativeRoutingTests(unittest.TestCase):
             state["advisor"],
             {
                 "kind": "claude_subscription",
-                "model": "claude-opus-5",
+                "model": "claude-opus-5-5",
                 "effort": "xhigh",
                 "server": "fable-advisor-python3",
             },
         )
 
         status = self.run_script("--status", "--require-effective")
-        self.assertIn("Claude Opus 5: ready", status.stdout)
+        self.assertIn("Claude Opus 5.5: ready", status.stdout)
         self.assertIn("no model call made", status.stdout)
 
         update = self.run_script(
@@ -2727,7 +2727,7 @@ class NativeRoutingTests(unittest.TestCase):
             "max",
             "--apply",
         )
-        self.assertIn("Advisor: Claude Opus 5 max", update.stdout)
+        self.assertIn("Advisor: Claude Opus 5.5 max", update.stdout)
         updated = json.loads(
             (self.home / NATIVE.STATE_FILENAME).read_text(encoding="utf-8")
         )
@@ -2818,7 +2818,7 @@ class NativeRoutingTests(unittest.TestCase):
     def test_fable_5_1_requires_supported_claude_code_without_writes(self) -> None:
         original = self.claude.read_text(encoding="utf-8")
         self.claude.write_text(
-            original.replace("2.1.259 (Claude Code)", "2.1.254 (Claude Code)"),
+            original.replace("2.1.292 (Claude Code)", "2.1.254 (Claude Code)"),
             encoding="utf-8",
         )
         too_old = self.run_script(
@@ -2891,7 +2891,7 @@ class NativeRoutingTests(unittest.TestCase):
     def test_opus_version_and_effort_prerequisites_fail_closed(self) -> None:
         original = self.claude.read_text(encoding="utf-8")
         self.claude.write_text(
-            original.replace("2.1.259 (Claude Code)", "2.1.218 (Claude Code)"),
+            original.replace("2.1.292 (Claude Code)", "2.1.291 (Claude Code)"),
             encoding="utf-8",
         )
         too_old = self.run_script(
@@ -2901,23 +2901,23 @@ class NativeRoutingTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(too_old.returncode, 2)
-        self.assertIn("requires Claude Code 2.1.219 or newer", too_old.stderr)
+        self.assertIn("requires Claude Code 2.1.292 or newer", too_old.stderr)
         self.assertFalse((self.home / NATIVE.STATE_FILENAME).exists())
 
     def test_opus_version_output_must_be_one_canonical_version_line(self) -> None:
         original = self.claude.read_text(encoding="utf-8")
 
         for output in (
-            "2.1.219 (Claude Code)",
-            " \t2.1.219 (Claude Code)\r\n",
-            "2.1.220 (Claude Code)",
+            "2.1.292 (Claude Code)",
+            " \t2.1.292 (Claude Code)\r\n",
+            "2.1.293 (Claude Code)",
             "2.2.0 (Claude Code)",
             "3.0.0 (Claude Code)",
         ):
             with self.subTest(accepted=output):
                 self.claude.write_text(
                     original.replace(
-                        'print("2.1.259 (Claude Code)")',
+                        'print("2.1.292 (Claude Code)")',
                         f"print({output!r})",
                     ),
                     encoding="utf-8",
@@ -2930,18 +2930,18 @@ class NativeRoutingTests(unittest.TestCase):
                 self.assertIn("Dry run only", accepted.stdout)
 
         for output in (
-            "wrapper 9.9.9\n2.1.219 (Claude Code)",
-            "2.1.219 (Claude Code)\n2.1.220 (Claude Code)",
-            "Claude Code 2.1.219",
-            "prefix2.1.219 (Claude Code)",
-            "2.1.219 (Claude Code)suffix",
-            "02.1.219 (Claude Code)",
+            "wrapper 9.9.9\n2.1.292 (Claude Code)",
+            "2.1.292 (Claude Code)\n2.1.293 (Claude Code)",
+            "Claude Code 2.1.292",
+            "prefix2.1.292 (Claude Code)",
+            "2.1.292 (Claude Code)suffix",
+            "02.1.292 (Claude Code)",
             f"{'9' * 5000}.1.1 (Claude Code)",
         ):
             with self.subTest(rejected=output):
                 self.claude.write_text(
                     original.replace(
-                        'print("2.1.259 (Claude Code)")',
+                        'print("2.1.292 (Claude Code)")',
                         f"print({output!r})",
                     ),
                     encoding="utf-8",
@@ -2960,8 +2960,8 @@ class NativeRoutingTests(unittest.TestCase):
 
         self.claude.write_text(
             original.replace(
-                'print("2.1.259 (Claude Code)")',
-                "print('2.1.218 (Claude Code)')",
+                'print("2.1.292 (Claude Code)")',
+                "print('2.1.291 (Claude Code)')",
             ),
             encoding="utf-8",
         )
@@ -2972,7 +2972,7 @@ class NativeRoutingTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(too_old.returncode, 2)
-        self.assertIn("requires Claude Code 2.1.219 or newer", too_old.stderr)
+        self.assertIn("requires Claude Code 2.1.292 or newer", too_old.stderr)
 
     def test_bundled_claude_prerequisite_checks_every_runtime_control(self) -> None:
         original = self.claude.read_text(encoding="utf-8")
@@ -3022,7 +3022,7 @@ class NativeRoutingTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(missing.returncode, 2)
-        self.assertIn("does not advertise Claude Opus 5 effort 'xhigh'", missing.stderr)
+        self.assertIn("does not advertise Claude Opus 5.5 effort 'xhigh'", missing.stderr)
 
         self.claude.write_text(
             original.replace(
@@ -3039,7 +3039,7 @@ class NativeRoutingTests(unittest.TestCase):
         )
         self.assertEqual(malformed_efforts.returncode, 2)
         self.assertIn(
-            "does not advertise Claude Opus 5 effort 'high'",
+            "does not advertise Claude Opus 5.5 effort 'high'",
             malformed_efforts.stderr,
         )
 
@@ -3067,10 +3067,10 @@ class NativeRoutingTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(unsealed.returncode, 2)
-        self.assertIn("Claude Opus 5 effort must be one of", unsealed.stderr)
+        self.assertIn("Claude Opus effort must be one of", unsealed.stderr)
 
         self.claude.write_text(
-            original.replace("2.1.259 (Claude Code)", "not-a-version"),
+            original.replace("2.1.292 (Claude Code)", "not-a-version"),
             encoding="utf-8",
         )
         malformed = self.run_script(
