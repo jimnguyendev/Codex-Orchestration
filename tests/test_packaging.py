@@ -7,7 +7,7 @@ import subprocess
 import unittest
 from unittest import mock
 
-from scripts import preflight
+from scripts import preflight, review_attestation
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +29,28 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(attestation["repository"], "jimnguyendev/Codex-Orchestration")
         self.assertRegex(attestation["reviewed_head_sha"], r"^[0-9a-f]{40}$")
         self.assertIsInstance(attestation["negative_test_evidence"], list)
+
+    def test_codeowners_name_the_repository_owner_on_security_paths(self) -> None:
+        owner = "@" + review_attestation.EXPECTED_REPOSITORY.split("/", 1)[0]
+        rules = {}
+        for line in (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            pattern, *owners = line.split()
+            rules[pattern] = owners
+        self.assertTrue(rules)
+        for pattern, owners in rules.items():
+            # An owner without write access is ignored by GitHub, which silently
+            # removes required owner review from every matching path.
+            self.assertEqual(owners, [owner], pattern)
+        for pattern in (
+            "*",
+            "/.github/",
+            "/plugins/codex-orchestration/skills/codex-orchestration/scripts/",
+            "/SECURITY.md",
+        ):
+            self.assertIn(pattern, rules)
 
     def test_versioned_hooks_use_preflight_source_of_truth(self) -> None:
         expected = {
